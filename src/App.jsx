@@ -1,35 +1,51 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React, { useState, useEffect } from "react";
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [question, setQuestion] = useState(null);
+  const [level, setLevel] = useState(1);
+  const [answer, setAnswer] = useState("");
+  const [feedback, setFeedback] = useState("");
+
+  // Fetch question from backend
+  useEffect(() => {
+    fetch(`/api/question?level=${level}`)
+      .then((res) => res.json())
+      .then((data) => setQuestion(data));
+  }, [level]);
+
+  const checkAnswer = () => {
+    if (answer.trim().toLowerCase() === question.answer.toLowerCase()) {
+      setFeedback("✅ Correct! +5 HUG Tokens!");
+      setTimeout(() => {
+        setFeedback("");
+        setAnswer("");
+        setLevel((prev) => prev + 1);
+      }, 1500);
+    } else {
+      setFeedback("❌ Try again!");
+    }
+  };
+
+  if (!question) return <p>Loading...</p>;
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+    <div style={{ textAlign: "center", padding: "2rem" }}>
+      <h1>Hugs Trivia</h1>
+      <h3>Level {level}</h3>
+      <p>{question.question}</p>
 
-export default App
+      <input
+        type="text"
+        value={answer}
+        placeholder="Your answer..."
+        onChange={(e) => setAnswer(e.target.value)}
+        style={{ padding: "0.5rem", fontSize: "1rem" }}
+      />
+      <button onClick={checkAnswer} style={{ marginLeft: "1rem" }}>
+        Submit
+      </button>
+
+      <p style={{ marginTop: "1rem" }}>{feedback}</p>
+    </div>
+  );
+}
