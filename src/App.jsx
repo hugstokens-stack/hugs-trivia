@@ -1,189 +1,188 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import { CONFIG as RAW } from "./config";
+import { CONFIG } from "./config";
 import { getWallet, clearWallet, createTestWallet } from "./wallet";
-
-/** Defaults if some CONFIG fields are missing */
-const CONFIG = {
-  secondsPerQuestion: 22,
-  questionsPerRound: 7,
-  tokensPerCorrectRound: 5,
-  tokenCode: "HUGS",
-  startOnEnter: true,
-  submitOnEnter: true,
-  totalLevels: 100,
-  ...RAW,
-};
+// ✅ tie in your large bank
+import { EXTRA_BANK } from "./extras"; // Vite will happily import .ts from .jsx
 
 export default function App() {
-  // Core game state
-  const [started, setStarted] = useState(false);            // actively answering questions in a level
-  const [level, setLevel] = useState(1);                    // 1..100
-  const [qIndex, setQIndex] = useState(1);                  // 1..questionsPerRound
+  // ───────────── Game state
+  const [started, setStarted] = useState(false);
+  const [level, setLevel] = useState(1);
   const [question, setQuestion] = useState(null);
   const [answer, setAnswer] = useState("");
   const [feedback, setFeedback] = useState("");
   const [correctInRound, setCorrectInRound] = useState(0);
-
-  // Flow control
+  const [qIndex, setQIndex] = useState(0); // index within a round (0..questionsPerRound-1)
   const [showLevelComplete, setShowLevelComplete] = useState(false);
-  const [busy, setBusy] = useState(false);                  // prevent double submits during transitions
 
-  // Timer
-  const [timeLeft, setTimeLeft] = useState(CONFIG.secondsPerQuestion);
-  const timerRef = useRef(null);
-
-  // Wallet
+  // ───────────── Wallet
   const [wallet, setWalletState] = useState(getWallet());
 
+  // ───────────── Sizing
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
 
-  /** Global keyboard handling */
+  // ───────────── No repeats across the whole session
+  const normalize = (s = "") => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const keyForQ = (q) => (q?.id ?? normalize(q?.question ?? ""));
+
+  const [askedKeys, setAskedKeys] = useState(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("askedKeys") || "[]"));
+    } catch {
+      return new Set();
+    }
+  });
+  const rememberAsked = (k) => {
+    const next = new Set(askedKeys);
+    next.add(k);
+    setAskedKeys(next);
+    localStorage.setItem("askedKeys", JSON.stringify([...next]));
+  };
+
+  // ───────────── Auto-focus input on every new question
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (started && question && !showLevelComplete) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }, 0);
+    }
+  }, [question, started, showLevelComplete, qIndex]);
+
+  // ───────────── Keyboard: Enter to start / submit / next level
   useEffect(() => {
     function onKey(e) {
       if (e.key !== "Enter") return;
 
-      // Start first level
-      if (CONFIG.startOnEnter && !started && !showLevelComplete) {
+      if (!started && CONFIG.startOnEnter) {
         setStarted(true);
         return;
       }
 
-      // Next level after pause
       if (showLevelComplete) {
-        nextLevel();
+        // enter starts next level
+        setShowLevelComplete(false);
+        setCorrectInRound(0);
+        setQIndex(0);
+        setLevel((L) => L + 1);
         return;
       }
 
-      // Submit during play
-      if (CONFIG.submitOnEnter && started && !busy && answer.trim()) {
-        handleSubmit();
+      if (started && CONFIG.submitOnEnter) {
+        if (answer.trim()) submit();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [started, showLevelComplete, busy, answer]);
+  }, [started, showLevelComplete, answer]);
 
-  /** Fetch a question whenever level or qIndex changes during active play */
+  // ───────────── Helper: level → difficulty (100 levels across 5 difficulties)
+  const difficultyForLevel = (L) => Math.min(5, Math.max(1, Math.ceil(L / 20)));
+
+  // ───────────── Fetch a question (API first, fallback to EXTRA_BANK) with no repeats
   useEffect(() => {
     if (!started || showLevelComplete) return;
 
+    let cancelled = false;
     setQuestion(null);
-    // include qIndex so backend can vary questions within a level if desired
-    fetch(`/api/question?level=${level}&q=${qIndex}`)
-      .then((r) => r.json())
-      .then((data) => setQuestion(data))
-      .catch(() => setQuestion({ question: "Failed to load question.", answer: "" }));
-  }, [started, level, qIndex, showLevelComplete]);
 
-  /** Per-question timer: 22s; on timeout, auto-advance as incorrect */
-  useEffect(() => {
-    if (!started || showLevelComplete) return;
+    async function fetchFromAPI() {
+      try {
+        const res = await fetch(`/api/question?level=${level}&q=${qIndex}`);
+        const data = await res.json();
+        if (!data) return null;
+        const k = keyForQ(data);
+        if (askedKeys.has(k)) return null; // duplicate -> reject to try fallback
+        return data;
+      } catch {
+        return null;
+      }
+    }
 
-    // (re)start timer for each question
-    setTimeLeft(CONFIG.secondsPerQuestion);
-    if (timerRef.current) clearInterval(timerRef.current);
-
-    timerRef.current = setInterval(() => {
-      setTimeLeft((t) => {
-        if (t <= 1) {
-          clearInterval(timerRef.current);
-          // treat as incorrect & move on
-          if (!busy) skipOrAdvance(false, "⏱️ Time's up — moving to next question.");
-          return CONFIG.secondsPerQuestion;
+    function fetchFromExtras() {
+      const diff = difficultyForLevel(level);
+      const pool = EXTRA_BANK[diff] || [];
+      // try to find a not-yet-asked question in this difficulty
+      for (const q of pool) {
+        const k = keyForQ({ id: q.id, question: q.q });
+        if (!askedKeys.has(k)) {
+          return { id: q.id, question: q.q, answer: Array.isArray(q.a) ? q.a[0] : q.a };
         }
-        return t - 1;
-      });
-    }, 1000);
+      }
+      return null;
+    }
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [started, qIndex, showLevelComplete]);
+    (async () => {
+      // Try API up to a few times; if duplicates or error, fall back to extras
+      let nextQ = null;
 
-  /** Submit button handler */
-  function handleSubmit() {
-    if (busy || !question) return;
-    const ok =
-      answer.trim().toLowerCase() === (question.answer || "").toLowerCase();
+      for (let attempt = 0; attempt < 3 && !nextQ; attempt++) {
+        nextQ = await fetchFromAPI();
+      }
+      if (!nextQ) nextQ = fetchFromExtras();
+
+      if (!nextQ) {
+        // last resort (no uniques left at this difficulty)
+        nextQ = {
+          id: `out-${Date.now()}`,
+          question: "We’re out of fresh questions at this difficulty. Add more to the pool!",
+          answer: "",
+        };
+      }
+
+      if (!cancelled) {
+        rememberAsked(keyForQ(nextQ));
+        setQuestion(nextQ);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [started, level, qIndex, showLevelComplete]); // askedKeys persisted via rememberAsked
+
+  // ───────────── Submit answer (advance even if wrong)
+  function submit() {
+    if (!question) return;
+    const user = answer.trim().toLowerCase();
+    const expected = (question.answer || "").toString().toLowerCase();
+    const ok = user && expected && user === expected;
 
     if (ok) {
-      skipOrAdvance(true, "✅ Correct!");
+      setCorrectInRound((c) => c + 1);
+      setFeedback("✅ Correct! +5 HUG Tokens (pending)"); // visual feedback
     } else {
-      skipOrAdvance(false, "❌ Incorrect — skipping to next.");
+      setFeedback("❌ Incorrect — moving on…");
     }
-  }
 
-  /** Skip/advance shared pathway (correct or not) */
-  function skipOrAdvance(wasCorrect, msg) {
-    setBusy(true);
-    if (timerRef.current) clearInterval(timerRef.current);
-
-    setFeedback(msg);
-    if (wasCorrect) setCorrectInRound((c) => c + 1);
-
+    // Advance to next question (or complete the level)
     setTimeout(() => {
       setFeedback("");
       setAnswer("");
-
-      // next question or finish the round
-      setQIndex((i) => {
-        const next = i + 1;
-        if (next > CONFIG.questionsPerRound) {
-          onRoundComplete();
-          return 1; // prepare for next round
-        }
-        return next;
-      });
-
-      setBusy(false);
+      const nextIndex = qIndex + 1;
+      if (nextIndex >= roundTarget) {
+        // level complete
+        setShowLevelComplete(true);
+      } else {
+        setQIndex(nextIndex);
+      }
     }, 600);
   }
 
-  /** Round complete -> award, pause & wait for Enter to start next level */
-  async function onRoundComplete() {
-    setStarted(false);
-
-    // optional reward
-    try {
-      if (wallet?.address) {
-        await rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound);
-        setFeedback(`🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`);
-      } else {
-        setFeedback("🎉 Level Complete! (Connect/Create wallet to receive rewards)");
-      }
-    } catch {
-      setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)");
+  // ───────────── Reward tokens after each completed round
+  useEffect(() => {
+    if (!started) return;
+    if (showLevelComplete && wallet?.address) {
+      rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound)
+        .then(() =>
+          setFeedback(`🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`)
+        )
+        .catch(() => setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)"));
     }
+  }, [showLevelComplete, started, wallet]);
 
-    setShowLevelComplete(true);
-  }
-
-  /** Move to the next level */
-  function nextLevel() {
-    setFeedback("");
-    setShowLevelComplete(false);
-    setCorrectInRound(0);
-    setAnswer("");
-
-    setLevel((L) => {
-      const total = CONFIG.totalLevels || 100;
-      if (L >= total) {
-        // End of game
-        setStarted(false);
-        setShowLevelComplete(true);
-        setFeedback("🏁 All levels complete! Great job!");
-        return L;
-      }
-      return L + 1;
-    });
-
-    setQIndex(1);
-    setStarted(true);
-  }
-
-  /** Reward API call (mock-able) */
   async function rewardTokens(address, amount) {
+    if (!address) throw new Error("No wallet address");
     const res = await fetch("/api/reward", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -197,13 +196,12 @@ export default function App() {
     const w = await createTestWallet();
     setWalletState(w);
   }
-
   function resetWallet() {
     clearWallet();
     setWalletState(null);
   }
 
-  /** UI */
+  // ───────────── Render
   return (
     <div className="page">
       <div className="scrim" />
@@ -212,20 +210,12 @@ export default function App() {
           <section className="card">
             {/* HUD */}
             <header className="hud" style={{ justifyContent: "space-between" }}>
-              <div className="hud" style={{ gap: 8, alignItems: "center" }}>
+              <div className="hud">
                 <span className="badge">Level {level}</span>
                 <span className="badge">{CONFIG.secondsPerQuestion}s • {CONFIG.questionsPerRound} Q/Round</span>
-                {started && !showLevelComplete && (
-                  <>
-                    <span className="badge">Q {qIndex}/{CONFIG.questionsPerRound}</span>
-                    <span className="badge">⏳ {timeLeft}s</span>
-                  </>
-                )}
               </div>
-              <div className="hud" style={{ gap: 8 }}>
-                <span className="badge">
-                  Wallet: {wallet?.address ? wallet.address : "—"}
-                </span>
+              <div className="hud">
+                <span className="badge">Wallet: {wallet?.address ? wallet.address : "—"}</span>
                 {wallet?.address ? (
                   <button className="btn btn-ghost" onClick={resetWallet}>Remove</button>
                 ) : (
@@ -237,62 +227,39 @@ export default function App() {
             {/* Title */}
             <h1 className="title">Hugs Trivia</h1>
 
-            {/* Start screen */}
-            {!started && !showLevelComplete && (
+            {!started ? (
               <div className="start-wrap">
                 <p className="subtitle">
-                  {CONFIG.questionsPerRound} questions • {CONFIG.secondsPerQuestion} seconds each • {CONFIG.totalLevels || 100} levels.
-                  Earn {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} each level you complete.
+                  {CONFIG.questionsPerRound} questions • {CONFIG.secondsPerQuestion} seconds each.
+                  Earn {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} per correct round.
                 </p>
-                <p>
-                  Press <span className="kbd">Enter</span> to start
-                </p>
+                <p>Press <span className="kbd">Enter</span> to start</p>
                 <div style={{ marginTop: "1rem" }}>
-                  <button className="btn btn-green" onClick={() => setStarted(true)}>
-                    Start Game
-                  </button>
+                  <button className="btn btn-green" onClick={() => setStarted(true)}>Start Game</button>
                 </div>
               </div>
-            )}
-
-            {/* Level complete pause */}
-            {showLevelComplete && (
+            ) : showLevelComplete ? (
               <div className="start-wrap">
-                <p className="subtitle">{feedback || "Level complete!"}</p>
-                <p>Press <span className="kbd">Enter</span> for next level</p>
-                <div style={{ marginTop: "1rem" }}>
-                  <button className="btn btn-blue" onClick={nextLevel}>
-                    Next Level
-                  </button>
-                </div>
+                <p className="subtitle">Level complete! Press <span className="kbd">Enter</span> to start the next level.</p>
               </div>
-            )}
-
-            {/* Active question UI */}
-            {started && !showLevelComplete && (
+            ) : (
               <>
                 <h3 className="level">Question</h3>
-                <p className="subtitle">
-                  {question?.question ?? "Loading…"}
-                </p>
+                <p className="subtitle">{question?.question ?? "Loading…"}</p>
 
-                <div className="controls" style={{ gap: 8 }}>
+                <div className="controls">
                   <input
+                    ref={inputRef}
                     type="text"
                     value={answer}
                     placeholder="Your answer…"
                     onChange={(e) => setAnswer(e.target.value)}
-                    disabled={busy}
+                    autoComplete="off"
                   />
-                  <button className="btn btn-blue" onClick={handleSubmit} disabled={busy || !answer.trim()}>
-                    Submit
-                  </button>
-                  <button className="btn btn-ghost" onClick={() => skipOrAdvance(false, "⏭️ Skipped.")} disabled={busy}>
-                    Skip
-                  </button>
+                  <button className="btn btn-blue" onClick={submit}>Submit</button>
                 </div>
 
-                {feedback && <div className="feedback" style={{ marginTop: 10 }}>{feedback}</div>}
+                {feedback && <div className="feedback">{feedback}</div>}
               </>
             )}
           </section>
