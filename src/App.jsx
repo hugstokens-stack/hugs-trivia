@@ -5,10 +5,9 @@ import { getWallet, clearWallet, createTestWallet } from "./wallet";
 import { EXTRA_BANK } from "./extras.js";
 
 export default function App() {
-  // ---------------- State ----------------
+  // ---------- game state ----------
   const [started, setStarted] = useState(false);
   const [pausedBetweenLevels, setPausedBetweenLevels] = useState(false);
-
   const [level, setLevel] = useState(1);
 
   const [question, setQuestion] = useState(null);
@@ -16,69 +15,74 @@ export default function App() {
   const [feedback, setFeedback] = useState("");
 
   const [secondsLeft, setSecondsLeft] = useState(CONFIG.secondsPerQuestion);
-  const [askedInLevel, setAskedInLevel] = useState(0);          // 0..questionsPerRound
-  const [correctInLevel, setCorrectInLevel] = useState(0);      // per-level correct
+  const [askedInLevel, setAskedInLevel] = useState(0);
+  const [correctInLevel, setCorrectInLevel] = useState(0);
 
-  // Wallet
+  // wallet
   const [wallet, setWalletState] = useState(getWallet());
 
-  // Settings
+  // constants
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
   const perQuestionSeconds = useMemo(() => CONFIG.secondsPerQuestion, []);
 
-  // Refs
+  // refs
   const inputRef = useRef(null);
-  const usedIdsRef = useRef(new Set()); // prevent repeats across the whole session
 
-  // ---------------- Helpers ----------------
-  function pickLocalQuestion(levelNum) {
-    const bank = EXTRA_BANK[levelNum] || [];
-    const pool = bank.filter((q) => !usedIdsRef.current.has(q.id));
-    if (pool.length === 0 && bank.length > 0) {
-      // if exhausted for this level, clear only those IDs from the used set (so repeats reset per level bank)
-      bank.forEach((q) => usedIdsRef.current.delete(q.id));
+  // global no-repeat set across the whole session
+  // we key by normalized question text + answers (more robust than ids)
+  const usedKeysRef = useRef(new Set());
+
+  // ---------- helpers ----------
+  const norm = (s) => String(s ?? "").trim().toLowerCase();
+  const keyFor = (q) =>
+    `${norm(q.q || q.question)}|${
+      Array.isArray(q.a || q.answers)
+        ? (q.a || q.answers).map(norm).sort().join(",")
+        : norm(q.a || q.answer)
+    }`;
+
+  function pickFromLevel(lvl) {
+    const bank = EXTRA_BANK[lvl] || [];
+    const pool = bank.filter((q) => !usedKeysRef.current.has(keyFor(q)));
+    if (pool.length === 0) return null;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function pickAnyUnused() {
+    for (const lvl of Object.keys(EXTRA_BANK).map((n) => +n)) {
+      const c = pickFromLevel(lvl);
+      if (c) return c;
     }
-    const finalPool = bank.filter((q) => !usedIdsRef.current.has(q.id));
-    if (finalPool.length === 0) return null;
-    const q = finalPool[Math.floor(Math.random() * finalPool.length)];
-    usedIdsRef.current.add(q.id);
-    return q;
+    return null;
   }
 
   function loadNextQuestion(nextAskedCount) {
-    // If the next question would exceed roundTarget, complete the level
+    // round finished?
     if (nextAskedCount >= roundTarget) {
       completeLevel();
       return;
     }
 
-    // immediate local question (no network stall)
-    const local = pickLocalQuestion(level);
-    if (local) {
-      setQuestion({ id: local.id, question: local.q, answer: Array.isArray(local.a) ? local.a[0] : local.a, answers: local.a });
-    } else {
-      setQuestion(null);
+    // try same-level first
+    let local = pickFromLevel(level);
+    if (!local) {
+      // fallback: anywhere, still no repeats
+      local = pickAnyUnused();
     }
 
-    // Optional server request for variety—overwrites local when it returns
-    fetch(`/api/question?level=${level}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data && data.question) {
-          const qid = data.id || `srv-${Date.now()}`;
-          if (!usedIdsRef.current.has(qid)) usedIdsRef.current.add(qid);
-          setQuestion({ id: qid, question: data.question, answer: data.answer });
-        }
-      })
-      .catch(() => {
-        // ignore; local already shown
-      });
+    if (!local) {
+      setQuestion({ question: "Out of questions 🎉", answer: "" });
+      setPausedBetweenLevels(true);
+      setFeedback("No more unique questions. Press Enter to start over.");
+      return;
+    }
 
-    // reset UI for the new question
+    // register and show
+    usedKeysRef.current.add(keyFor(local));
+    setQuestion({ question: local.q, answer: local.a, answers: local.a });
     setAnswer("");
     setFeedback("");
     setSecondsLeft(perQuestionSeconds);
-    // focus goes to the input when question state changes (see effect below)
   }
 
   function startLevel(nextLevel) {
@@ -86,57 +90,63 @@ export default function App() {
     setAskedInLevel(0);
     setCorrectInLevel(0);
     setPausedBetweenLevels(false);
-    // load first question in the level
     loadNextQuestion(0);
   }
 
   function completeLevel() {
-    // pay only for perfect rounds (7/7) like previous behavior
     if (correctInLevel === roundTarget && wallet?.address) {
       rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound)
-        .then(() => setFeedback(`🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`))
-        .catch(() => setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)"));
+        .then(() =>
+          setFeedback(
+            `🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`
+          )
+        )
+        .catch(() =>
+          setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)")
+        );
     } else {
-      setFeedback("⏸️ Level complete. Press Enter to start the next level.");
+      setFeedback("⏸️ Level complete. Press Enter for the next level.");
     }
     setPausedBetweenLevels(true);
     setSecondsLeft(perQuestionSeconds);
   }
 
-  function normalizedCompare(userText, correct) {
-    if (!correct) return false;
-    const norm = (s) => String(s).trim().toLowerCase();
-    const ua = norm(userText);
-    if (Array.isArray(correct)) {
-      return correct.map(norm).includes(ua);
-    }
-    return ua === norm(correct);
+  function isCorrect(user, correct) {
+    const U = norm(user);
+    if (Array.isArray(correct)) return correct.map(norm).includes(U);
+    return U === norm(correct);
+  }
+
+  function advanceAsWrong() {
+    setFeedback("❌ Skipping…");
+    const nextAsked = askedInLevel + 1;
+    setTimeout(() => {
+      setAskedInLevel(nextAsked);
+      loadNextQuestion(nextAsked);
+    }, 300);
   }
 
   function submit() {
     if (!question) return;
     const ok =
-      normalizedCompare(answer, question.answer) ||
-      (question.answers && normalizedCompare(answer, question.answers));
+      isCorrect(answer, question.answer) ||
+      (question.answers && isCorrect(answer, question.answers));
 
-    let nextAsked = askedInLevel + 1;
+    const nextAsked = askedInLevel + 1;
 
     if (ok) {
       setCorrectInLevel((c) => c + 1);
       setFeedback("✅ Correct!");
+      setTimeout(() => {
+        setAskedInLevel(nextAsked);
+        loadNextQuestion(nextAsked);
+      }, 450);
     } else {
-      setFeedback("❌ Incorrect — skipping…");
+      advanceAsWrong();
     }
-
-    // small delay for feedback, then advance
-    setTimeout(() => {
-      setAskedInLevel(nextAsked);
-      loadNextQuestion(nextAsked);
-    }, ok ? 550 : 450);
   }
 
   async function rewardTokens(address, amount) {
-    if (!address) throw new Error("No wallet address");
     const res = await fetch("/api/reward", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -155,55 +165,57 @@ export default function App() {
     setWalletState(null);
   }
 
-  // ---------------- Effects ----------------
+  // ---------- effects ----------
 
-  // Global keyboard: Enter to start / submit / advance level
+  // Global Enter handling:
+  // - Not started -> start game
+  // - Between levels -> start next level
+  // - During question:
+  //     Enter with text => submit
+  //     Enter empty     => skip (advance)
   useEffect(() => {
     function onKey(e) {
       if (e.key !== "Enter") return;
 
       if (!started) {
-        // start game
         setStarted(true);
         startLevel(1);
         return;
       }
       if (pausedBetweenLevels) {
-        // go to next level
         setFeedback("");
         startLevel(level + 1);
         return;
       }
-      // in a question, submit if there is text
-      if (answer.trim()) submit();
+      if (!question) return;
+
+      if (norm(answer).length > 0) {
+        submit();
+      } else {
+        advanceAsWrong();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [started, pausedBetweenLevels, answer, level]);
+  }, [started, pausedBetweenLevels, level, question, answer]);
 
-  // Per-question timer
+  // Per-question countdown
   useEffect(() => {
     if (!started || pausedBetweenLevels || !question) return;
     if (secondsLeft <= 0) {
-      // time's up -> count as wrong and advance
-      setFeedback("⏱️ Time's up — skipping…");
-      const nextAsked = askedInLevel + 1;
-      setTimeout(() => {
-        setAskedInLevel(nextAsked);
-        loadNextQuestion(nextAsked);
-      }, 400);
+      advanceAsWrong();
       return;
     }
     const t = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [secondsLeft, started, pausedBetweenLevels, question, askedInLevel]);
+  }, [secondsLeft, started, pausedBetweenLevels, question]);
 
-  // Auto-focus input whenever a new question lands
+  // Auto-focus the input whenever a new question arrives
   useEffect(() => {
     if (question && inputRef.current) inputRef.current.focus();
   }, [question]);
 
-  // ---------------- Render ----------------
+  // ---------- UI ----------
   return (
     <div className="page">
       <div className="scrim" />
@@ -213,8 +225,12 @@ export default function App() {
           <header className="hud" style={{ justifyContent: "space-between" }}>
             <div className="hud">
               <span className="badge">Level {level}</span>
-              <span className="badge">{perQuestionSeconds}s • {roundTarget} Q/Round</span>
-              <span className="badge">Q {Math.min(askedInLevel + 1, roundTarget)}/{roundTarget}</span>
+              <span className="badge">
+                {perQuestionSeconds}s • {roundTarget} Q/Round
+              </span>
+              <span className="badge">
+                Q {Math.min(askedInLevel + 1, roundTarget)}/{roundTarget}
+              </span>
               {started && !pausedBetweenLevels && (
                 <span className="badge">⏱ {secondsLeft}s</span>
               )}
@@ -224,43 +240,43 @@ export default function App() {
                 Wallet: {wallet?.address ? wallet.address : "—"}
               </span>
               {wallet?.address ? (
-                <button className="btn btn-ghost" onClick={resetWallet}>Remove</button>
+                <button className="btn btn-ghost" onClick={resetWallet}>
+                  Remove
+                </button>
               ) : (
-                <button className="btn btn-blue" onClick={makeWallet}>Create Wallet</button>
+                <button className="btn btn-blue" onClick={makeWallet}>
+                  Create Wallet
+                </button>
               )}
             </div>
           </header>
 
-          {/* Title */}
           <h1 className="title">Hugs Trivia</h1>
 
-          {/* Screens */}
           {!started ? (
             <div className="start-wrap">
               <p className="subtitle">
-                {roundTarget} questions • {perQuestionSeconds} seconds each. Earn {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
+                {roundTarget} questions • {perQuestionSeconds} seconds each. Earn{" "}
+                {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
               </p>
-              <p>Press <span className="kbd">Enter</span> to start</p>
-              <div style={{ marginTop: "1rem" }}>
-                <button className="btn btn-green" onClick={() => { setStarted(true); startLevel(1); }}>
-                  Start Game
-                </button>
-              </div>
+              <p>
+                Press <span className="kbd">Enter</span> to start
+              </p>
             </div>
           ) : pausedBetweenLevels ? (
             <div className="start-wrap">
               <h3 className="level">Level {level} Complete</h3>
               <p className="subtitle">
-                Correct: {correctInLevel}/{roundTarget}. {correctInLevel === roundTarget ? `+${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode}!` : "No reward this level."}
+                Correct: {correctInLevel}/{roundTarget}.
               </p>
-              <p>Press <span className="kbd">Enter</span> to start Level {level + 1}.</p>
+              <p>
+                Press <span className="kbd">Enter</span> to start Level {level + 1}.
+              </p>
             </div>
           ) : (
             <>
               <h3 className="level">Question</h3>
-              <p className="subtitle">
-                {question?.question ?? "Loading…"}
-              </p>
+              <p className="subtitle">{question?.question ?? "Loading…"}</p>
 
               <div className="controls">
                 <input
@@ -270,10 +286,15 @@ export default function App() {
                   placeholder="Your answer…"
                   onChange={(e) => setAnswer(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && answer.trim()) submit();
+                    if (e.key === "Enter") {
+                      if (norm(answer).length > 0) submit();
+                      else advanceAsWrong();
+                    }
                   }}
                 />
-                <button className="btn btn-blue" onClick={submit}>Submit</button>
+                <button className="btn btn-blue" onClick={submit}>
+                  Submit
+                </button>
               </div>
 
               {feedback && <div className="feedback">{feedback}</div>}
