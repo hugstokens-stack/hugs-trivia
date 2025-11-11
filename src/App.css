@@ -1,157 +1,43 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap");
-
-:root {
-  --panel-bg: #f6d56b;
-  --panel-bg-90: rgba(246,213,107,0.92);
-  --text: #1a1a1a;
-  --muted: #404040;
-  --white: #ffffff;
-  --accent-blue: #2563eb;
-  --accent-green: #16a34a;
-  --shadow: 0 10px 30px rgba(0,0,0,0.28);
-  --radius: 16px;
-}
-
 body {
   margin: 0;
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-  background-image: url("/boardwalktheme.png");
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-image: url('/boardwalktheme.png');
   background-size: cover;
   background-position: center;
-  background-attachment: fixed;
   background-repeat: no-repeat;
-  color: var(--white);
-  animation: fadeInBackground 2.5s ease-out forwards;
-}
-
-@keyframes fadeInBackground {
-  0% { filter: brightness(0.2) blur(6px); opacity: 0; }
-  100% { filter: brightness(1) blur(0); opacity: 1; }
-}
-
-.scrim {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(to top, rgba(0,0,0,.55) 0%, rgba(0,0,0,.22) 45%, rgba(0,0,0,0) 75%);
-  z-index: 5;
-}
-
-.page {
-  min-height: 100vh;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 4vh 24px 10vh;
-  position: relative;
+  height: 100vh;
+  color: #fff;
 }
 
 .overlay {
-  position: relative;
-  z-index: 10;
-  width: min(980px, 92%);
-  max-width: 980px;
-  border-radius: 18px;
-  padding: 22px 26px;
-  background: var(--panel-bg-90);
-  color: var(--text);
-  box-shadow: 0 14px 50px rgba(0,0,0,.35);
-  border: 1px solid rgba(0,0,0,.18);
-  backdrop-filter: blur(4px);
-  font-size: 1.06rem;
-  line-height: 1.45;
+  background-color: rgba(255, 204, 0, 0.85); /* gold with transparency */
+  color: #000;
+  padding: 20px;
+  border-radius: 10px;
+  max-width: 500px;
+  width: 90%;
+  position: absolute;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-/* Center adjustment on larger screens */
 @media (min-width: 768px) {
   .overlay {
-    transform: translateX(60px);
+    transform: translateX(160px); /* SHIFT RIGHT on desktop */
   }
 }
 
-.overlay, .overlay * {
-  color: var(--text);
-}
-
-h1, .title {
-  margin: 6px 0 10px;
-  font-size: clamp(28px, 4vw, 40px);
-  font-weight: 800;
-  color: var(--text);
-  animation: textGlow 2s ease-in-out infinite alternate;
-}
-
-@keyframes textGlow {
-  0% { text-shadow: 0 0 5px #f6d56b, 0 0 10px #f6d56b, 0 0 20px #f6d56b; }
-  50% { text-shadow: 0 0 10px #ffe18b, 0 0 25px #ffdd66, 0 0 35px #ffd93b; }
-  100% { text-shadow: 0 0 5px #f6d56b, 0 0 10px #f6d56b, 0 0 20px #f6d56b; }
-}
-
-.header, .status, .info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-small, .subtle {
-  color: var(--muted);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 14px;
-  line-height: 1;
-  border-radius: 12px;
-  border: 0;
+button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 5px;
   cursor: pointer;
-  font-weight: 600;
-  box-shadow: 0 2px 0 rgba(0,0,0,0.15);
-  transition: transform .05s ease-in, filter .15s ease;
-}
-.btn:active { transform: translateY(1px); }
-
-.btn-blue { background: var(--accent-blue); color: #fff; }
-.btn-blue:hover { filter: brightness(1.05); }
-
-.btn-green { background: var(--accent-green); color: #fff; }
-.btn-green:hover { filter: brightness(1.05); }
-
-.btn-ghost {
-  background: transparent;
-  border: 1px solid rgba(0,0,0,0.15);
-  color: var(--text);
 }
 
-.mt-2 { margin-top: 8px; }
-.ml-2 { margin-left: 8px; }
-.ml-3 { margin-left: 12px; }
-
-.actions { margin-top: 10px; }
-.info { font-size: 0.9rem; margin-top: 8px; }
-.status { opacity: 0.9; margin-top: 8px; color: var(--muted); }
-
-.hud {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.badge {
-  display: inline-block;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(255,255,255,.85);
-  color: #111;
-  font-weight: 700;
-  box-shadow: 0 1px 0 rgba(0,0,0,.15);
-}
-
-.controls input {
-  height: 42px;
-  padding: 0 12px;
-  font-size: 1.05rem;
+button:hover {
+  background-color: #0056b3;
 }
