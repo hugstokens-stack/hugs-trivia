@@ -1,42 +1,155 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+/* 22 Seconds — UI Styling (gold panel + Inter font) */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap");
+
+/* Theme tokens */
+:root{
+  --panel-bg: #f6d56b;         /* soft golden yellow */
+  --panel-bg-90: rgba(246,213,107,0.92);
+  --text: #1a1a1a;             /* very dark gray for high contrast */
+  --muted: #404040;
+  --white: #ffffff;
+  --accent-blue: #2563eb;      /* buttons */
+  --accent-green: #16a34a;
+  --shadow: 0 10px 30px rgba(0,0,0,0.28);
+  --radius: 16px;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* Page background remains the boardwalk image */
+body {
+  margin: 0;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
+  background-image: url("/boardwalktheme.png");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  color: var(--white);
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
+/* Layout container used by the app */
+.page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+}
+
+/* GOLD PANEL (the game card) */
+.overlay {
+  background: var(--panel-bg-90);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  border-radius: var(--radius);
+  max-width: 880px;
+  width: min(90%, 920px);
+  padding: 18px 20px;
+  border: 1px solid rgba(0,0,0,0.14);
+  backdrop-filter: blur(2px);
+}
+
+/* Header row: title left, wallet/actions right */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.15;
+  color: var(--text);
+  letter-spacing: 0.1px;
+  font-weight: 800;
+}
+
+small, .subtle {
+  color: var(--muted);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  line-height: 1;
+  border-radius: 10px;
+  border: 0;
+  cursor: pointer;
+  font-weight: 600;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.15);
+  transition: transform .05s ease-in, filter .15s ease;
+}
+
+.btn:active { transform: translateY(1px); }
+
+.btn-blue  { background: var(--accent-blue); color: #fff; }
+.btn-blue:hover { filter: brightness(1.05); }
+
+.btn-green { background: var(--accent-green); color: #fff; }
+.btn-green:hover { filter: brightness(1.05); }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid rgba(0,0,0,0.15);
+  color: var(--text);
+}
+
+/* Spacing helpers */
+.mt-2 { margin-top: 8px; }
+.ml-2 { margin-left: 8px; }
+.ml-3 { margin-left: 12px; }
+
+/* Info row (wallet, balance) */
+.info {
+  font-size: 0.9rem;
+  margin-top: 8px;
+}
+
+/* Level/round line */
+.status {
+  opacity: 0.9;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+/* Start button area */
+.actions { margin-top: 10px; }
+/* === Boardwalk lighting fade-in === */
+@keyframes fadeInBackground {
+  0% {
+    filter: brightness(0.2) blur(6px);
+    opacity: 0;
   }
-  to {
-    transform: rotate(360deg);
+  100% {
+    filter: brightness(1) blur(0);
+    opacity: 1;
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+body {
+  animation: fadeInBackground 2.5s ease-out forwards;
+}
+
+/* Title shimmer */
+@keyframes textGlow {
+  0% {
+    text-shadow: 0 0 5px #f6d56b, 0 0 10px #f6d56b, 0 0 20px #f6d56b;
+  }
+  50% {
+    text-shadow: 0 0 10px #ffe18b, 0 0 25px #ffdd66, 0 0 35px #ffd93b;
+  }
+  100% {
+    text-shadow: 0 0 5px #f6d56b, 0 0 10px #f6d56b, 0 0 20px #f6d56b;
   }
 }
 
-.card {
-  padding: 2em;
+h1, .title {
+  animation: textGlow 2s ease-in-out infinite alternate;
 }
 
-.read-the-docs {
-  color: #888;
-}
