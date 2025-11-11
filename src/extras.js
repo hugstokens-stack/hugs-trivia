@@ -1,11 +1,14 @@
-// client/src/extras.ts
+// client/src/extras.js
 // 180 new questions across 6 categories, 30 each (6 per difficulty level).
-// Id prefixes: band|ad|pop|tech|movie|hist  + difficulty number + serial.
+// Id prefixes: band|ad|pop|tech|movie|hist + difficulty number + serial.
 
+export const EXTRA_BANK = {
   // ───────────────────────────────── DIFFICULTY 1 (easy) ─────────────────────────────────
   1: [
     // American bands (6)
     { id: "band1-01", q: "Which American band recorded 'Hotel California'?", a: ["eagles", "the eagles"] },
+    // …(rest of your items unchanged)…
+
     { id: "band1-02", q: "Which West Coast band sang 'Good Vibrations'?", a: ["the beach boys", "beach boys"] },
     { id: "band1-03", q: "Which New Jersey band sang 'Livin’ on a Prayer'?", a: ["bon jovi"] },
     { id: "band1-04", q: "Which rock band’s mascot is ‘Eddie’?", a: ["iron maiden"] }, // (UK… leave one fun curve)
