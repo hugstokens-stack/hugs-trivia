@@ -86,7 +86,16 @@ export default function App() {
   return (
     <>
       <div className="app-bg" />
-      <div className="app-overlay" />
+      <div className="app-overlay" />return (
+  <div className="page">
+    <div className="scrim" />
+    <div className="overlay">
+      {/* your existing header / wallet / title / instructions / buttons */}
+      {/* …existing JSX stays the same… */}
+    </div>
+  </div>
+);
+
       <main className="app-wrap">
         <section className="card">
           <header className="hud" style={{ justifyContent: "space-between" }}>
