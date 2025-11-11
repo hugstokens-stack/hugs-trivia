@@ -40,9 +40,12 @@ export default function App() {
     fetch(`/api/question?level=${level}`)
       .then((r) => r.json())
       .then((data) => setQuestion(data))
-      .catch(() => setQuestion({ question: "Failed to load question", answer: "" }));
+      .catch(() =>
+        setQuestion({ question: "Failed to load question", answer: "" })
+      );
   }, [level, started]);
 
+  // Submit: advance even if wrong (corrects only increment on right answers)
   function submit() {
     if (!question) return;
     const ok =
@@ -51,15 +54,26 @@ export default function App() {
     if (ok) {
       setCorrectInRound((c) => c + 1);
       setFeedback("✅ Correct! +5 HUG Tokens (pending)");
-      setTimeout(() => {
-        setFeedback("");
-        setAnswer("");
-        setLevel((prev) => prev + 1);
-      }, 800);
     } else {
-      setFeedback("❌ Try again!");
-      setTimeout(() => setFeedback(""), 700);
+      setFeedback("❌ Incorrect. Moving on…");
     }
+
+    // advance after a short beat either way
+    setTimeout(() => {
+      setFeedback("");
+      setAnswer("");
+      setLevel((prev) => prev + 1);
+    }, 900);
+  }
+
+  // Manual skip (does not increment correct count)
+  function skip() {
+    setFeedback("⏭️ Skipped.");
+    setTimeout(() => {
+      setFeedback("");
+      setAnswer("");
+      setLevel((prev) => prev + 1);
+    }, 500);
   }
 
   // Pay out after each completed round
@@ -151,9 +165,7 @@ export default function App() {
             ) : (
               <>
                 <h3 className="level">Question</h3>
-                <p className="subtitle">
-                  {question?.question ?? "Loading…"}
-                </p>
+                <p className="subtitle">{question?.question ?? "Loading…"}</p>
 
                 <div className="controls">
                   <input
@@ -164,6 +176,9 @@ export default function App() {
                   />
                   <button className="btn btn-blue" onClick={submit}>
                     Submit
+                  </button>
+                  <button className="btn btn-ghost ml-2" onClick={skip} title="Skip this question">
+                    Skip
                   </button>
                 </div>
 

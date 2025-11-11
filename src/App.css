@@ -151,3 +151,38 @@ h1.title {
   font-weight: 700;
   color: var(--accent-green);
 }
+/* --- Bigger, more readable game typography --- */
+.overlay {
+  padding: 36px 40px;
+  width: min(1200px, 95vw);
+  font-size: 1.12rem;  /* base size inside card */
+}
+
+h1.title {
+  font-size: clamp(36px, 5.6vw, 54px);
+}
+
+.level {
+  font-size: 1.5rem;
+  margin: 12px 0 8px;
+}
+
+.subtitle,
+.question,
+.feedback {
+  font-size: 1.35rem;
+  line-height: 1.4;
+}
+
+/* Input + buttons larger */
+.controls input {
+  height: 56px;
+  font-size: 1.25rem;
+  width: min(680px, 92%);
+}
+
+.btn {
+  padding: 12px 20px;
+  font-size: 1.15rem;
+  border-radius: 12px;
+}
