@@ -25,7 +25,7 @@ body {
 
 @media (min-width: 768px) {
   .overlay {
-    transform: translateX(160px); /* SHIFT RIGHT on desktop */
+    transform: translateX(240px); /* ⬅️ stronger shift to center in background image */
   }
 }
 
