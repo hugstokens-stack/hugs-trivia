@@ -5,7 +5,7 @@ import { getWallet, clearWallet, createTestWallet } from "./wallet";
 import { EXTRA_BANK } from "./extras.js";
 
 export default function App() {
-  // ---------- game state ----------
+  // -------- game state --------
   const [started, setStarted] = useState(false);
   const [pausedBetweenLevels, setPausedBetweenLevels] = useState(false);
   const [level, setLevel] = useState(1);
@@ -22,9 +22,13 @@ export default function App() {
   const [wallet, setWalletState] = useState(getWallet());
 
   // rewards / history
-  const [hugsBalance, setHugsBalance] = useState(0);
-  const [history, setHistory] = useState([]); // {ts, level, earned, durationSec}
-  const [showHistory, setShowHistory] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState([]); // {ts, level, correct, durationSec, tokens}
+  const levelStartRef = useRef(null);
+  const balance = useMemo(
+    () => history.reduce((s, h) => s + (h.tokens || 0), 0),
+    [history]
+  );
 
   // constants
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
@@ -32,13 +36,9 @@ export default function App() {
 
   // refs
   const inputRef = useRef(null);
-  const levelStartRef = useRef(null); // Date.now() at level start
+  const usedKeysRef = useRef(new Set()); // global no-repeat across the whole session
 
-  // global no-repeat set across the whole session
-  // key = normalized question + normalized answers
-  const usedKeysRef = useRef(new Set());
-
-  // ---------- helpers ----------
+  // -------- helpers --------
   const norm = (s) => String(s ?? "").trim().toLowerCase();
   const keyFor = (q) =>
     `${norm(q.q || q.question)}|${
@@ -63,41 +63,15 @@ export default function App() {
   }
 
   function loadNextQuestion(nextAskedCount) {
-  // Stop counting extra questions beyond roundTarget
-  if (nextAskedCount >= roundTarget) {
-    completeLevel();
-    return; // ✅ stops extra increment (fixes 10/7 issue)
-  }
-
-  // try same-level first
-  let local = pickFromLevel(level);
-  if (!local) {
-    // fallback: anywhere, still no repeats
-    local = pickAnyUnused();
-  }
-
-  if (!local) {
-    setQuestion({ question: "Out of questions 🎉", answer: "" });
-    setPausedBetweenLevels(true);
-    setFeedback("No more unique questions. Press Enter to start over.");
-    return;
-  }
-
-  // register and show
-  usedKeysRef.current.add(keyFor(local));
-  setQuestion({ question: local.q, answer: local.a, answers: local.a });
-  setAnswer("");
-  setFeedback("");
-  setSecondsLeft(perQuestionSeconds);
-}
-
+    // round finished? — stop here (prevents 9/7)
+    if (nextAskedCount >= roundTarget) {
+      completeLevel();
+      return;
+    }
 
     // try same-level first
     let local = pickFromLevel(level);
-    if (!local) {
-      // fallback: anywhere, still no repeats
-      local = pickAnyUnused();
-    }
+    if (!local) local = pickAnyUnused(); // fallback anywhere, still no repeats
 
     if (!local) {
       setQuestion({ question: "Out of questions 🎉", answer: "" });
@@ -138,28 +112,33 @@ export default function App() {
       ? Math.max(1, Math.round((Date.now() - levelStartRef.current) / 1000))
       : 0;
 
-    if (correctInLevel === roundTarget && wallet?.address) {
-      rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound)
+    const perfect = correctInLevel === roundTarget && wallet?.address;
+    const tokens = perfect ? CONFIG.tokensPerCorrectRound : 0;
+
+    if (perfect) {
+      rewardTokens(wallet.address, tokens)
         .then(() => {
-          setHugsBalance((b) => b + CONFIG.tokensPerCorrectRound);
-          setHistory((rows) => [
-            { ts: Date.now(), level, earned: CONFIG.tokensPerCorrectRound, durationSec },
-            ...rows,
-          ]);
           setFeedback(
             `🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`
           );
+          setHistory((h) => [
+            { ts: Date.now(), level, correct: correctInLevel, durationSec, tokens },
+            ...h,
+          ]);
         })
         .catch(() => {
           setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)");
-          setHistory((rows) => [
-            { ts: Date.now(), level, earned: 0, durationSec },
-            ...rows,
+          setHistory((h) => [
+            { ts: Date.now(), level, correct: correctInLevel, durationSec, tokens: 0 },
+            ...h,
           ]);
         });
     } else {
       setFeedback("⏸️ Level complete. Press Enter for the next level.");
-      setHistory((rows) => [{ ts: Date.now(), level, earned: 0, durationSec }, ...rows]);
+      setHistory((h) => [
+        { ts: Date.now(), level, correct: correctInLevel, durationSec, tokens: 0 },
+        ...h,
+      ]);
     }
 
     setPausedBetweenLevels(true);
@@ -187,8 +166,7 @@ export default function App() {
       isCorrect(answer, question.answer) ||
       (question.answers && isCorrect(answer, question.answers));
 
-    const nextAsked = Math.min(askedInLevel + 1, roundTarget);
-
+    const nextAsked = askedInLevel + 1;
 
     if (ok) {
       setCorrectInLevel((c) => c + 1);
@@ -196,7 +174,7 @@ export default function App() {
       setTimeout(() => {
         setAskedInLevel(nextAsked);
         loadNextQuestion(nextAsked);
-      }, 280);
+      }, 420);
     } else {
       advanceAsWrong();
     }
@@ -211,8 +189,7 @@ export default function App() {
     setWalletState(null);
   }
 
-  // ---------- effects ----------
-  // Global Enter: start / next level / submit-or-skip
+  // -------- key handling (Enter everywhere) --------
   useEffect(() => {
     function onKey(e) {
       if (e.key !== "Enter") return;
@@ -236,7 +213,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [started, pausedBetweenLevels, level, question, answer]);
 
-  // Per-question countdown
+  // -------- timer per question --------
   useEffect(() => {
     if (!started || pausedBetweenLevels || !question) return;
     if (secondsLeft <= 0) {
@@ -247,12 +224,12 @@ export default function App() {
     return () => clearTimeout(t);
   }, [secondsLeft, started, pausedBetweenLevels, question]);
 
-  // Auto-focus the input whenever a new question arrives
+  // auto focus input on new question
   useEffect(() => {
     if (question && inputRef.current) inputRef.current.focus();
   }, [question]);
 
-  // ---------- UI ----------
+  // -------- UI --------
   return (
     <div className="page">
       <div className="scrim" />
@@ -273,13 +250,13 @@ export default function App() {
               )}
             </div>
 
-            <div className="hud" style={{ gap: 8 }}>
+            <div className="hud">
               <button
-                className="btn btn-green"
-                onClick={() => setShowHistory(true)}
-                title="Show HUGS history"
+                className="btn btn-gold"
+                onClick={() => setHistoryOpen(true)}
+                title="View rewards and game history"
               >
-                💰 HUGS: {hugsBalance}
+                {CONFIG.tokenCode}: {balance}
               </button>
               <span className="badge">
                 Wallet: {wallet?.address ? wallet.address : "—"}
@@ -296,7 +273,7 @@ export default function App() {
             </div>
           </header>
 
-          <h1 className="title">Hugs Trivia</h1>
+          <h1 className="title">22 Seconds</h1>
 
           {!started ? (
             <div className="start-wrap">
@@ -347,40 +324,42 @@ export default function App() {
           )}
 
           {/* History modal */}
-          {showHistory && (
-            <div className="modal-backdrop" onClick={() => setShowHistory(false)}>
-              <div
-                className="modal"
-                onClick={(e) => e.stopPropagation()}
-                role="dialog"
-                aria-modal="true"
-              >
+          {historyOpen && (
+            <div className="modal">
+              <div className="modal-card">
                 <div className="modal-head">
-                  <h3>HUGS History</h3>
-                  <button className="btn btn-ghost" onClick={() => setShowHistory(false)}>
+                  <h3>Hugs History</h3>
+                  <button className="btn btn-ghost" onClick={() => setHistoryOpen(false)}>
                     ✕
                   </button>
                 </div>
                 <div className="modal-body">
+                  <div className="summary">
+                    <strong>Total {CONFIG.tokenCode}:</strong> {balance}
+                  </div>
                   {history.length === 0 ? (
-                    <p>No games logged yet.</p>
+                    <p>No games recorded yet.</p>
                   ) : (
                     <table className="table">
                       <thead>
                         <tr>
                           <th>Date</th>
                           <th>Level</th>
-                          <th>HUGS Earned</th>
+                          <th>Correct</th>
                           <th>Duration</th>
+                          <th>{CONFIG.tokenCode}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {history.map((r, i) => (
+                        {history.map((h, i) => (
                           <tr key={i}>
-                            <td>{new Date(r.ts).toLocaleString()}</td>
-                            <td>{r.level}</td>
-                            <td>{r.earned}</td>
-                            <td>{r.durationSec}s</td>
+                            <td>{new Date(h.ts).toLocaleString()}</td>
+                            <td>{h.level}</td>
+                            <td>
+                              {h.correct}/{roundTarget}
+                            </td>
+                            <td>{h.durationSec}s</td>
+                            <td>{h.tokens}</td>
                           </tr>
                         ))}
                       </tbody>
