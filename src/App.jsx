@@ -21,15 +21,21 @@ export default function App() {
   // wallet
   const [wallet, setWalletState] = useState(getWallet());
 
+  // rewards / history
+  const [hugsBalance, setHugsBalance] = useState(0);
+  const [history, setHistory] = useState([]); // {ts, level, earned, durationSec}
+  const [showHistory, setShowHistory] = useState(false);
+
   // constants
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
   const perQuestionSeconds = useMemo(() => CONFIG.secondsPerQuestion, []);
 
   // refs
   const inputRef = useRef(null);
+  const levelStartRef = useRef(null); // Date.now() at level start
 
   // global no-repeat set across the whole session
-  // we key by normalized question text + answers (more robust than ids)
+  // key = normalized question + normalized answers
   const usedKeysRef = useRef(new Set());
 
   // ---------- helpers ----------
@@ -57,11 +63,34 @@ export default function App() {
   }
 
   function loadNextQuestion(nextAskedCount) {
-    // round finished?
-    if (nextAskedCount >= roundTarget) {
-      completeLevel();
-      return;
-    }
+  // Stop counting extra questions beyond roundTarget
+  if (nextAskedCount >= roundTarget) {
+    completeLevel();
+    return; // ✅ stops extra increment (fixes 10/7 issue)
+  }
+
+  // try same-level first
+  let local = pickFromLevel(level);
+  if (!local) {
+    // fallback: anywhere, still no repeats
+    local = pickAnyUnused();
+  }
+
+  if (!local) {
+    setQuestion({ question: "Out of questions 🎉", answer: "" });
+    setPausedBetweenLevels(true);
+    setFeedback("No more unique questions. Press Enter to start over.");
+    return;
+  }
+
+  // register and show
+  usedKeysRef.current.add(keyFor(local));
+  setQuestion({ question: local.q, answer: local.a, answers: local.a });
+  setAnswer("");
+  setFeedback("");
+  setSecondsLeft(perQuestionSeconds);
+}
+
 
     // try same-level first
     let local = pickFromLevel(level);
@@ -90,23 +119,49 @@ export default function App() {
     setAskedInLevel(0);
     setCorrectInLevel(0);
     setPausedBetweenLevels(false);
+    levelStartRef.current = Date.now();
     loadNextQuestion(0);
   }
 
+  async function rewardTokens(address, amount) {
+    const res = await fetch("/api/reward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, amount, token: CONFIG.tokenCode }),
+    });
+    if (!res.ok) throw new Error("reward failed");
+    return res.json();
+  }
+
   function completeLevel() {
+    const durationSec = levelStartRef.current
+      ? Math.max(1, Math.round((Date.now() - levelStartRef.current) / 1000))
+      : 0;
+
     if (correctInLevel === roundTarget && wallet?.address) {
       rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound)
-        .then(() =>
+        .then(() => {
+          setHugsBalance((b) => b + CONFIG.tokensPerCorrectRound);
+          setHistory((rows) => [
+            { ts: Date.now(), level, earned: CONFIG.tokensPerCorrectRound, durationSec },
+            ...rows,
+          ]);
           setFeedback(
             `🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`
-          )
-        )
-        .catch(() =>
-          setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)")
-        );
+          );
+        })
+        .catch(() => {
+          setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)");
+          setHistory((rows) => [
+            { ts: Date.now(), level, earned: 0, durationSec },
+            ...rows,
+          ]);
+        });
     } else {
       setFeedback("⏸️ Level complete. Press Enter for the next level.");
+      setHistory((rows) => [{ ts: Date.now(), level, earned: 0, durationSec }, ...rows]);
     }
+
     setPausedBetweenLevels(true);
     setSecondsLeft(perQuestionSeconds);
   }
@@ -123,7 +178,7 @@ export default function App() {
     setTimeout(() => {
       setAskedInLevel(nextAsked);
       loadNextQuestion(nextAsked);
-    }, 300);
+    }, 220);
   }
 
   function submit() {
@@ -132,7 +187,8 @@ export default function App() {
       isCorrect(answer, question.answer) ||
       (question.answers && isCorrect(answer, question.answers));
 
-    const nextAsked = askedInLevel + 1;
+    const nextAsked = Math.min(askedInLevel + 1, roundTarget);
+
 
     if (ok) {
       setCorrectInLevel((c) => c + 1);
@@ -140,20 +196,10 @@ export default function App() {
       setTimeout(() => {
         setAskedInLevel(nextAsked);
         loadNextQuestion(nextAsked);
-      }, 450);
+      }, 280);
     } else {
       advanceAsWrong();
     }
-  }
-
-  async function rewardTokens(address, amount) {
-    const res = await fetch("/api/reward", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, amount, token: CONFIG.tokenCode }),
-    });
-    if (!res.ok) throw new Error("reward failed");
-    return res.json();
   }
 
   async function makeWallet() {
@@ -166,13 +212,7 @@ export default function App() {
   }
 
   // ---------- effects ----------
-
-  // Global Enter handling:
-  // - Not started -> start game
-  // - Between levels -> start next level
-  // - During question:
-  //     Enter with text => submit
-  //     Enter empty     => skip (advance)
+  // Global Enter: start / next level / submit-or-skip
   useEffect(() => {
     function onKey(e) {
       if (e.key !== "Enter") return;
@@ -189,11 +229,8 @@ export default function App() {
       }
       if (!question) return;
 
-      if (norm(answer).length > 0) {
-        submit();
-      } else {
-        advanceAsWrong();
-      }
+      if (norm(answer).length > 0) submit();
+      else advanceAsWrong();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -235,7 +272,15 @@ export default function App() {
                 <span className="badge">⏱ {secondsLeft}s</span>
               )}
             </div>
-            <div className="hud">
+
+            <div className="hud" style={{ gap: 8 }}>
+              <button
+                className="btn btn-green"
+                onClick={() => setShowHistory(true)}
+                title="Show HUGS history"
+              >
+                💰 HUGS: {hugsBalance}
+              </button>
               <span className="badge">
                 Wallet: {wallet?.address ? wallet.address : "—"}
               </span>
@@ -299,6 +344,51 @@ export default function App() {
 
               {feedback && <div className="feedback">{feedback}</div>}
             </>
+          )}
+
+          {/* History modal */}
+          {showHistory && (
+            <div className="modal-backdrop" onClick={() => setShowHistory(false)}>
+              <div
+                className="modal"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+              >
+                <div className="modal-head">
+                  <h3>HUGS History</h3>
+                  <button className="btn btn-ghost" onClick={() => setShowHistory(false)}>
+                    ✕
+                  </button>
+                </div>
+                <div className="modal-body">
+                  {history.length === 0 ? (
+                    <p>No games logged yet.</p>
+                  ) : (
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Level</th>
+                          <th>HUGS Earned</th>
+                          <th>Duration</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {history.map((r, i) => (
+                          <tr key={i}>
+                            <td>{new Date(r.ts).toLocaleString()}</td>
+                            <td>{r.level}</td>
+                            <td>{r.earned}</td>
+                            <td>{r.durationSec}s</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </main>
       </div>
