@@ -5,7 +5,7 @@ import { getWallet, clearWallet, createTestWallet } from "./wallet";
 import { EXTRA_BANK } from "./extras.js";
 
 export default function App() {
-  // ----------------- GAME STATE -----------------
+  // ---------- game state ----------
   const [started, setStarted] = useState(false);
   const [pausedBetweenLevels, setPausedBetweenLevels] = useState(false);
   const [level, setLevel] = useState(1);
@@ -18,16 +18,8 @@ export default function App() {
   const [askedInLevel, setAskedInLevel] = useState(0);
   const [correctInLevel, setCorrectInLevel] = useState(0);
 
-  // wallet + rewards
+  // wallet
   const [wallet, setWalletState] = useState(getWallet());
-  const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("hugsHistory") || "[]");
-    } catch {
-      return [];
-    }
-  });
 
   // constants
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
@@ -35,11 +27,10 @@ export default function App() {
 
   // refs
   const inputRef = useRef(null);
+  const usedKeysRef = useRef(new Set());         // global no-repeat
+  const submitLockRef = useRef(false);           // prevents Enter double-fire
 
-  // global no-repeat set across the whole session (across all levels)
-  const usedKeysRef = useRef(new Set());
-
-  // ----------------- HELPERS -----------------
+  // ---------- helpers ----------
   const norm = (s) => String(s ?? "").trim().toLowerCase();
   const keyFor = (q) =>
     `${norm(q.q || q.question)}|${
@@ -67,18 +58,13 @@ export default function App() {
     // round finished?
     if (nextAskedCount >= roundTarget) {
       completeLevel();
-      // reset *per-round* counters to prevent the 9/7 overflow display
-      setAskedInLevel(0);
-      setCorrectInLevel((c) => c); // keep score for summary; reset when next level starts
-      setSecondsLeft(perQuestionSeconds);
-      setPausedBetweenLevels(true);
       return;
     }
 
     // try same-level first
     let local = pickFromLevel(level);
     if (!local) {
-      // fallback anywhere, still no repeats
+      // fallback: anywhere, still no repeats
       local = pickAnyUnused();
     }
 
@@ -95,6 +81,7 @@ export default function App() {
     setAnswer("");
     setFeedback("");
     setSecondsLeft(perQuestionSeconds);
+    submitLockRef.current = false; // unlock for the new question
   }
 
   function startLevel(nextLevel) {
@@ -105,40 +92,23 @@ export default function App() {
     loadNextQuestion(0);
   }
 
-  function appendHistory(row) {
-    const next = [row, ...history].slice(0, 200); // keep it tidy
-    setHistory(next);
-    localStorage.setItem("hugsHistory", JSON.stringify(next));
-  }
-
-  async function completeLevel() {
-    // record a row in history
-    const row = {
-      ts: Date.now(),
-      level,
-      correct: correctInLevel,
-      of: roundTarget,
-      durationSec: roundTarget * perQuestionSeconds,
-      hugs: 0,
-    };
-
+  function completeLevel() {
     if (correctInLevel === roundTarget && wallet?.address) {
-      try {
-        await rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound);
-        row.hugs = CONFIG.tokensPerCorrectRound;
-        setFeedback(`🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`);
-      } catch {
-        setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)");
-      }
+      rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound)
+        .then(() =>
+          setFeedback(
+            `🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`
+          )
+        )
+        .catch(() =>
+          setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)")
+        );
     } else {
       setFeedback("⏸️ Level complete. Press Enter for the next level.");
     }
-
-    appendHistory(row);
-  }
-
-  function hugsTotal() {
-    return history.reduce((sum, r) => sum + (r.hugs || 0), 0);
+    setPausedBetweenLevels(true);
+    setSecondsLeft(perQuestionSeconds);
+    setQuestion(null);
   }
 
   function isCorrect(user, correct) {
@@ -148,8 +118,11 @@ export default function App() {
   }
 
   function advanceAsWrong() {
+    if (submitLockRef.current || pausedBetweenLevels) return;
+    submitLockRef.current = true;
+
     setFeedback("❌ Skipping…");
-    const nextAsked = askedInLevel + 1;
+    const nextAsked = Math.min(askedInLevel + 1, roundTarget);
     setTimeout(() => {
       setAskedInLevel(nextAsked);
       loadNextQuestion(nextAsked);
@@ -157,20 +130,23 @@ export default function App() {
   }
 
   function submit() {
-    if (!question) return;
+    if (!question || pausedBetweenLevels) return;
+    if (submitLockRef.current) return;      // prevent double-submit
+    submitLockRef.current = true;
+
     const ok =
       isCorrect(answer, question.answer) ||
       (question.answers && isCorrect(answer, question.answers));
 
-    const nextAsked = askedInLevel + 1;
+    const nextAsked = Math.min(askedInLevel + 1, roundTarget);
 
     if (ok) {
-      setCorrectInLevel((c) => c + 1);
+      setCorrectInLevel((c) => Math.min(c + 1, roundTarget));
       setFeedback("✅ Correct!");
       setTimeout(() => {
         setAskedInLevel(nextAsked);
         loadNextQuestion(nextAsked);
-      }, 350);
+      }, 260);
     } else {
       advanceAsWrong();
     }
@@ -195,12 +171,13 @@ export default function App() {
     setWalletState(null);
   }
 
-  // ----------------- EFFECTS -----------------
-
-  // Global Enter handling
+  // ---------- effects ----------
   useEffect(() => {
     function onKey(e) {
       if (e.key !== "Enter") return;
+
+      // Do not let the global handler fire if the input has focus
+      if (document.activeElement === inputRef.current) return;
 
       if (!started) {
         setStarted(true);
@@ -214,9 +191,11 @@ export default function App() {
       }
       if (!question) return;
 
+      // empty = skip, text = submit
       if (norm(answer).length > 0) submit();
       else advanceAsWrong();
     }
+
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [started, pausedBetweenLevels, level, question, answer]);
@@ -232,34 +211,28 @@ export default function App() {
     return () => clearTimeout(t);
   }, [secondsLeft, started, pausedBetweenLevels, question]);
 
-  // Auto-focus the input whenever a new question arrives
+  // Focus the input when a new question arrives
   useEffect(() => {
     if (question && inputRef.current) inputRef.current.focus();
   }, [question]);
 
-  // ----------------- UI -----------------
+  // HUD counter value (no more 9/7)
+  const displayedQ = pausedBetweenLevels
+    ? roundTarget
+    : Math.min(askedInLevel + 1, roundTarget);
+
+  // ---------- UI ----------
   return (
     <div className="page">
-      {/* Background scrim */}
       <div className="scrim" />
 
-      {/* Neon marquee frame */}
-      <div className="marquee">
-        {Array.from({ length: 40 }).map((_, i) => (
-          <span key={`t-${i}`} className={`marquee__bulb marquee__bulb--t`} />
+      {/* Neon frame bulbs */}
+      <ul className="neon-frame" aria-hidden>
+        {Array.from({ length: 60 }).map((_, i) => (
+          <li key={i} />
         ))}
-        {Array.from({ length: 28 }).map((_, i) => (
-          <span key={`r-${i}`} className={`marquee__bulb marquee__bulb--r`} />
-        ))}
-        {Array.from({ length: 40 }).map((_, i) => (
-          <span key={`b-${i}`} className={`marquee__bulb marquee__bulb--b`} />
-        ))}
-        {Array.from({ length: 28 }).map((_, i) => (
-          <span key={`l-${i}`} className={`marquee__bulb marquee__bulb--l`} />
-        ))}
-      </div>
+      </ul>
 
-      {/* Gold panel */}
       <div className="overlay">
         <main className="app-wrap">
           {/* HUD */}
@@ -269,22 +242,13 @@ export default function App() {
               <span className="badge">
                 {perQuestionSeconds}s • {roundTarget} Q/Round
               </span>
-              <span className="badge">
-                Q {Math.min(askedInLevel + 1, roundTarget)}/{roundTarget}
-              </span>
+              <span className="badge">Q {displayedQ}/{roundTarget}</span>
               {started && !pausedBetweenLevels && (
                 <span className="badge">⏱ {secondsLeft}s</span>
               )}
             </div>
-
             <div className="hud">
-              <button
-                className="btn btn-ghost"
-                onClick={() => setShowHistory((v) => !v)}
-                title="Toggle Hugs History"
-              >
-                HUGS: {hugsTotal()}
-              </button>
+              <span className="badge">HUGS: 0</span>
               <span className="badge">
                 Wallet: {wallet?.address ? wallet.address : "—"}
               </span>
@@ -302,46 +266,11 @@ export default function App() {
 
           <h1 className="title">22 Seconds</h1>
 
-          {/* History panel */}
-          {showHistory && (
-            <div className="history">
-              <div className="history__head">
-                <h3>Hugs History</h3>
-                <button className="btn btn-ghost" onClick={() => setShowHistory(false)}>✕</button>
-              </div>
-              <div className="history__totals">Total HUGS: {hugsTotal()}</div>
-              <div className="history__table">
-                <div className="history__row history__row--h">
-                  <div>Date</div>
-                  <div>Level</div>
-                  <div>Correct</div>
-                  <div>Duration</div>
-                  <div>HUGS</div>
-                </div>
-                {history.map((r, idx) => (
-                  <div key={idx} className="history__row">
-                    <div>{new Date(r.ts).toLocaleString()}</div>
-                    <div>{r.level}</div>
-                    <div>
-                      {r.correct}/{r.of}
-                    </div>
-                    <div>{r.durationSec}s</div>
-                    <div>{r.hugs}</div>
-                  </div>
-                ))}
-                {history.length === 0 && (
-                  <div className="history__empty">No games yet — win a perfect round to earn HUGS!</div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Game states */}
           {!started ? (
             <div className="start-wrap">
               <p className="subtitle">
-                {roundTarget} questions • {perQuestionSeconds} seconds each. Earn{" "}
-                {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
+                {roundTarget} questions • {perQuestionSeconds} seconds each.
+                Earn {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
               </p>
               <p>
                 Press <span className="kbd">Enter</span> to start
@@ -351,7 +280,7 @@ export default function App() {
             <div className="start-wrap">
               <h3 className="level">Level {level} Complete</h3>
               <p className="subtitle">
-                Correct: {correctInLevel}/{roundTarget}.
+                Correct: {Math.min(correctInLevel, roundTarget)}/{roundTarget}.
               </p>
               <p>
                 Press <span className="kbd">Enter</span> to start Level {level + 1}.
