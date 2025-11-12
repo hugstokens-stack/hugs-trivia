@@ -5,7 +5,7 @@ import { getWallet, clearWallet, createTestWallet } from "./wallet";
 import { EXTRA_BANK } from "./extras.js";
 
 export default function App() {
-  // -------- game state --------
+  // ----------------- GAME STATE -----------------
   const [started, setStarted] = useState(false);
   const [pausedBetweenLevels, setPausedBetweenLevels] = useState(false);
   const [level, setLevel] = useState(1);
@@ -18,17 +18,16 @@ export default function App() {
   const [askedInLevel, setAskedInLevel] = useState(0);
   const [correctInLevel, setCorrectInLevel] = useState(0);
 
-  // wallet
+  // wallet + rewards
   const [wallet, setWalletState] = useState(getWallet());
-
-  // rewards / history
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState([]); // {ts, level, correct, durationSec, tokens}
-  const levelStartRef = useRef(null);
-  const balance = useMemo(
-    () => history.reduce((s, h) => s + (h.tokens || 0), 0),
-    [history]
-  );
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("hugsHistory") || "[]");
+    } catch {
+      return [];
+    }
+  });
 
   // constants
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
@@ -36,9 +35,11 @@ export default function App() {
 
   // refs
   const inputRef = useRef(null);
-  const usedKeysRef = useRef(new Set()); // global no-repeat across the whole session
 
-  // -------- helpers --------
+  // global no-repeat set across the whole session (across all levels)
+  const usedKeysRef = useRef(new Set());
+
+  // ----------------- HELPERS -----------------
   const norm = (s) => String(s ?? "").trim().toLowerCase();
   const keyFor = (q) =>
     `${norm(q.q || q.question)}|${
@@ -63,15 +64,23 @@ export default function App() {
   }
 
   function loadNextQuestion(nextAskedCount) {
-    // round finished? — stop here (prevents 9/7)
+    // round finished?
     if (nextAskedCount >= roundTarget) {
       completeLevel();
+      // reset *per-round* counters to prevent the 9/7 overflow display
+      setAskedInLevel(0);
+      setCorrectInLevel((c) => c); // keep score for summary; reset when next level starts
+      setSecondsLeft(perQuestionSeconds);
+      setPausedBetweenLevels(true);
       return;
     }
 
     // try same-level first
     let local = pickFromLevel(level);
-    if (!local) local = pickAnyUnused(); // fallback anywhere, still no repeats
+    if (!local) {
+      // fallback anywhere, still no repeats
+      local = pickAnyUnused();
+    }
 
     if (!local) {
       setQuestion({ question: "Out of questions 🎉", answer: "" });
@@ -93,56 +102,43 @@ export default function App() {
     setAskedInLevel(0);
     setCorrectInLevel(0);
     setPausedBetweenLevels(false);
-    levelStartRef.current = Date.now();
     loadNextQuestion(0);
   }
 
-  async function rewardTokens(address, amount) {
-    const res = await fetch("/api/reward", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, amount, token: CONFIG.tokenCode }),
-    });
-    if (!res.ok) throw new Error("reward failed");
-    return res.json();
+  function appendHistory(row) {
+    const next = [row, ...history].slice(0, 200); // keep it tidy
+    setHistory(next);
+    localStorage.setItem("hugsHistory", JSON.stringify(next));
   }
 
-  function completeLevel() {
-    const durationSec = levelStartRef.current
-      ? Math.max(1, Math.round((Date.now() - levelStartRef.current) / 1000))
-      : 0;
+  async function completeLevel() {
+    // record a row in history
+    const row = {
+      ts: Date.now(),
+      level,
+      correct: correctInLevel,
+      of: roundTarget,
+      durationSec: roundTarget * perQuestionSeconds,
+      hugs: 0,
+    };
 
-    const perfect = correctInLevel === roundTarget && wallet?.address;
-    const tokens = perfect ? CONFIG.tokensPerCorrectRound : 0;
-
-    if (perfect) {
-      rewardTokens(wallet.address, tokens)
-        .then(() => {
-          setFeedback(
-            `🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`
-          );
-          setHistory((h) => [
-            { ts: Date.now(), level, correct: correctInLevel, durationSec, tokens },
-            ...h,
-          ]);
-        })
-        .catch(() => {
-          setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)");
-          setHistory((h) => [
-            { ts: Date.now(), level, correct: correctInLevel, durationSec, tokens: 0 },
-            ...h,
-          ]);
-        });
+    if (correctInLevel === roundTarget && wallet?.address) {
+      try {
+        await rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound);
+        row.hugs = CONFIG.tokensPerCorrectRound;
+        setFeedback(`🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`);
+      } catch {
+        setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)");
+      }
     } else {
       setFeedback("⏸️ Level complete. Press Enter for the next level.");
-      setHistory((h) => [
-        { ts: Date.now(), level, correct: correctInLevel, durationSec, tokens: 0 },
-        ...h,
-      ]);
     }
 
-    setPausedBetweenLevels(true);
-    setSecondsLeft(perQuestionSeconds);
+    appendHistory(row);
+  }
+
+  function hugsTotal() {
+    return history.reduce((sum, r) => sum + (r.hugs || 0), 0);
   }
 
   function isCorrect(user, correct) {
@@ -174,10 +170,20 @@ export default function App() {
       setTimeout(() => {
         setAskedInLevel(nextAsked);
         loadNextQuestion(nextAsked);
-      }, 420);
+      }, 350);
     } else {
       advanceAsWrong();
     }
+  }
+
+  async function rewardTokens(address, amount) {
+    const res = await fetch("/api/reward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, amount, token: CONFIG.tokenCode }),
+    });
+    if (!res.ok) throw new Error("reward failed");
+    return res.json();
   }
 
   async function makeWallet() {
@@ -189,7 +195,9 @@ export default function App() {
     setWalletState(null);
   }
 
-  // -------- key handling (Enter everywhere) --------
+  // ----------------- EFFECTS -----------------
+
+  // Global Enter handling
   useEffect(() => {
     function onKey(e) {
       if (e.key !== "Enter") return;
@@ -213,7 +221,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [started, pausedBetweenLevels, level, question, answer]);
 
-  // -------- timer per question --------
+  // Per-question countdown
   useEffect(() => {
     if (!started || pausedBetweenLevels || !question) return;
     if (secondsLeft <= 0) {
@@ -224,15 +232,34 @@ export default function App() {
     return () => clearTimeout(t);
   }, [secondsLeft, started, pausedBetweenLevels, question]);
 
-  // auto focus input on new question
+  // Auto-focus the input whenever a new question arrives
   useEffect(() => {
     if (question && inputRef.current) inputRef.current.focus();
   }, [question]);
 
-  // -------- UI --------
+  // ----------------- UI -----------------
   return (
     <div className="page">
+      {/* Background scrim */}
       <div className="scrim" />
+
+      {/* Neon marquee frame */}
+      <div className="marquee">
+        {Array.from({ length: 40 }).map((_, i) => (
+          <span key={`t-${i}`} className={`marquee__bulb marquee__bulb--t`} />
+        ))}
+        {Array.from({ length: 28 }).map((_, i) => (
+          <span key={`r-${i}`} className={`marquee__bulb marquee__bulb--r`} />
+        ))}
+        {Array.from({ length: 40 }).map((_, i) => (
+          <span key={`b-${i}`} className={`marquee__bulb marquee__bulb--b`} />
+        ))}
+        {Array.from({ length: 28 }).map((_, i) => (
+          <span key={`l-${i}`} className={`marquee__bulb marquee__bulb--l`} />
+        ))}
+      </div>
+
+      {/* Gold panel */}
       <div className="overlay">
         <main className="app-wrap">
           {/* HUD */}
@@ -252,11 +279,11 @@ export default function App() {
 
             <div className="hud">
               <button
-                className="btn btn-gold"
-                onClick={() => setHistoryOpen(true)}
-                title="View rewards and game history"
+                className="btn btn-ghost"
+                onClick={() => setShowHistory((v) => !v)}
+                title="Toggle Hugs History"
               >
-                {CONFIG.tokenCode}: {balance}
+                HUGS: {hugsTotal()}
               </button>
               <span className="badge">
                 Wallet: {wallet?.address ? wallet.address : "—"}
@@ -275,6 +302,41 @@ export default function App() {
 
           <h1 className="title">22 Seconds</h1>
 
+          {/* History panel */}
+          {showHistory && (
+            <div className="history">
+              <div className="history__head">
+                <h3>Hugs History</h3>
+                <button className="btn btn-ghost" onClick={() => setShowHistory(false)}>✕</button>
+              </div>
+              <div className="history__totals">Total HUGS: {hugsTotal()}</div>
+              <div className="history__table">
+                <div className="history__row history__row--h">
+                  <div>Date</div>
+                  <div>Level</div>
+                  <div>Correct</div>
+                  <div>Duration</div>
+                  <div>HUGS</div>
+                </div>
+                {history.map((r, idx) => (
+                  <div key={idx} className="history__row">
+                    <div>{new Date(r.ts).toLocaleString()}</div>
+                    <div>{r.level}</div>
+                    <div>
+                      {r.correct}/{r.of}
+                    </div>
+                    <div>{r.durationSec}s</div>
+                    <div>{r.hugs}</div>
+                  </div>
+                ))}
+                {history.length === 0 && (
+                  <div className="history__empty">No games yet — win a perfect round to earn HUGS!</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Game states */}
           {!started ? (
             <div className="start-wrap">
               <p className="subtitle">
@@ -321,53 +383,6 @@ export default function App() {
 
               {feedback && <div className="feedback">{feedback}</div>}
             </>
-          )}
-
-          {/* History modal */}
-          {historyOpen && (
-            <div className="modal">
-              <div className="modal-card">
-                <div className="modal-head">
-                  <h3>Hugs History</h3>
-                  <button className="btn btn-ghost" onClick={() => setHistoryOpen(false)}>
-                    ✕
-                  </button>
-                </div>
-                <div className="modal-body">
-                  <div className="summary">
-                    <strong>Total {CONFIG.tokenCode}:</strong> {balance}
-                  </div>
-                  {history.length === 0 ? (
-                    <p>No games recorded yet.</p>
-                  ) : (
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Level</th>
-                          <th>Correct</th>
-                          <th>Duration</th>
-                          <th>{CONFIG.tokenCode}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {history.map((h, i) => (
-                          <tr key={i}>
-                            <td>{new Date(h.ts).toLocaleString()}</td>
-                            <td>{h.level}</td>
-                            <td>
-                              {h.correct}/{roundTarget}
-                            </td>
-                            <td>{h.durationSec}s</td>
-                            <td>{h.tokens}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            </div>
           )}
         </main>
       </div>
