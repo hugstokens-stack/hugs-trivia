@@ -202,10 +202,6 @@ export default function App() {
     <div className="page">
       <div className="scrim" />
 
-      {/* visible neon frame around viewport */}
-      <ul className="neon-frame">
-        {Array.from({ length: 60 }).map((_, i) => (<li key={i} />))}
-      </ul>
 
       <div className="overlay">
         <main className="app-wrap">
