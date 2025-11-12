@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { CONFIG } from "./config";
@@ -19,12 +18,11 @@ export default function App() {
   const [askedInLevel, setAskedInLevel] = useState(0);
   const [correctInLevel, setCorrectInLevel] = useState(0);
 
-  // wallet & history
   const [wallet, setWalletState] = useState(getWallet());
   const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("hugs_history")||"[]"); } catch { return []; }
-  });
+  const [totalHugs, setTotalHugs] = useState(
+    () => Number(localStorage.getItem("total_hugs") || 0)
+  );
 
   // constants
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
@@ -33,7 +31,7 @@ export default function App() {
   // refs
   const inputRef = useRef(null);
 
-  // global no-repeat across session
+  // global no-repeat across the session
   const usedKeysRef = useRef(new Set());
 
   // ---------- helpers ----------
@@ -51,6 +49,7 @@ export default function App() {
     if (pool.length === 0) return null;
     return pool[Math.floor(Math.random() * pool.length)];
   }
+
   function pickAnyUnused() {
     for (const lvl of Object.keys(EXTRA_BANK).map((n) => +n)) {
       const c = pickFromLevel(lvl);
@@ -60,8 +59,13 @@ export default function App() {
   }
 
   function loadNextQuestion(nextAskedCount) {
-    if (nextAskedCount >= roundTarget) { completeLevel(); return; }
+    // End of round?
+    if (nextAskedCount >= roundTarget) {
+      completeLevel();
+      return;
+    }
 
+    // try same-level first, then any unused
     let local = pickFromLevel(level);
     if (!local) local = pickAnyUnused();
 
@@ -72,6 +76,7 @@ export default function App() {
       return;
     }
 
+    // register no-repeat and show
     usedKeysRef.current.add(keyFor(local));
     setQuestion({ question: local.q, answer: local.a, answers: local.a });
     setAnswer("");
@@ -87,28 +92,42 @@ export default function App() {
     loadNextQuestion(0);
   }
 
-  function completeLevel() {
-    // record to history (mock HUGS earned only on perfect round)
-    const earned = correctInLevel === roundTarget ? CONFIG.tokensPerCorrectRound : 0;
+  function addHistoryRow(okCount) {
     const row = {
       ts: Date.now(),
       level,
-      correct: correctInLevel,
-      outOf: roundTarget,
+      correct: okCount,
+      total: roundTarget,
       duration: roundTarget * perQuestionSeconds,
-      hugs: earned,
+      hugs: okCount === roundTarget ? CONFIG.tokensPerCorrectRound : 0,
     };
-    const nextHist = [row, ...history].slice(0, 50);
-    setHistory(nextHist);
-    try { localStorage.setItem("hugs_history", JSON.stringify(nextHist)); } catch {}
+    const prev = JSON.parse(localStorage.getItem("hugs_history") || "[]");
+    prev.unshift(row);
+    localStorage.setItem("hugs_history", JSON.stringify(prev));
+    if (row.hugs) {
+      const newTotal = Number(localStorage.getItem("total_hugs") || 0) + row.hugs;
+      localStorage.setItem("total_hugs", String(newTotal));
+      setTotalHugs(newTotal);
+    }
+  }
 
-    if (earned && wallet?.address) {
-      rewardTokens(wallet.address, earned)
-        .then(() => setFeedback(`🎉 Level Complete! +${earned} ${CONFIG.tokenCode} awarded.`))
-        .catch(() => setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)"));
+  function completeLevel() {
+    addHistoryRow(correctInLevel);
+
+    if (correctInLevel === roundTarget && wallet?.address) {
+      rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound)
+        .then(() =>
+          setFeedback(
+            `🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`
+          )
+        )
+        .catch(() =>
+          setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)")
+        );
     } else {
       setFeedback("⏸️ Level complete. Press Enter for the next level.");
     }
+
     setPausedBetweenLevels(true);
     setSecondsLeft(perQuestionSeconds);
   }
@@ -125,7 +144,7 @@ export default function App() {
     setTimeout(() => {
       setAskedInLevel(nextAsked);
       loadNextQuestion(nextAsked);
-    }, 200);
+    }, 220);
   }
 
   function submit() {
@@ -142,7 +161,7 @@ export default function App() {
       setTimeout(() => {
         setAskedInLevel(nextAsked);
         loadNextQuestion(nextAsked);
-      }, 420);
+      }, 300);
     } else {
       advanceAsWrong();
     }
@@ -158,69 +177,114 @@ export default function App() {
     return res.json();
   }
 
-  async function makeWallet() { const w = await createTestWallet(); setWalletState(w); }
-  function resetWallet(){ clearWallet(); setWalletState(null); }
-
-  // unified start/next for mobile button
-  function startOrNext(){
-    if (!started) { setStarted(true); startLevel(1); }
-    else if (pausedBetweenLevels){ setFeedback(""); startLevel(level + 1); }
+  async function makeWallet() {
+    const w = await createTestWallet();
+    setWalletState(w);
+  }
+  function resetWallet() {
+    clearWallet();
+    setWalletState(null);
   }
 
   // ---------- effects ----------
-  // Global Enter: start/next or submit/skip
+
+  // Global Enter handling:
+  // - Not started -> start game
+  // - Between levels -> start next level
+  // - During question:
+  //     Enter with text => submit
+  //     Enter empty     => skip
   useEffect(() => {
-    function onKey(e){
+    function onKey(e) {
       if (e.key !== "Enter") return;
-      if (!started){ setStarted(true); startLevel(1); return; }
-      if (pausedBetweenLevels){ setFeedback(""); startLevel(level + 1); return; }
+
+      if (!started) {
+        setStarted(true);
+        startLevel(1);
+        return;
+      }
+      if (pausedBetweenLevels) {
+        setFeedback("");
+        startLevel(level + 1);
+        return;
+      }
       if (!question) return;
-      if (norm(answer).length > 0) submit(); else advanceAsWrong();
+
+      if (norm(answer).length > 0) submit();
+      else advanceAsWrong();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [started, pausedBetweenLevels, level, question, answer]);
 
-  // timer
+  // Per-question countdown
   useEffect(() => {
     if (!started || pausedBetweenLevels || !question) return;
-    if (secondsLeft <= 0){ advanceAsWrong(); return; }
-    const t = setTimeout(() => setSecondsLeft(s => s - 1), 1000);
+    if (secondsLeft <= 0) {
+      advanceAsWrong();
+      return;
+    }
+    const t = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
     return () => clearTimeout(t);
   }, [secondsLeft, started, pausedBetweenLevels, question]);
 
-  // focus input on question
-  useEffect(() => { if (question && inputRef.current) inputRef.current.focus(); }, [question]);
-
-  const displayQ =
-    started && !pausedBetweenLevels && question
-      ? Math.min(askedInLevel + 1, roundTarget)
-      : Math.min(askedInLevel, roundTarget);
+  // Auto-focus the input on new question
+  useEffect(() => {
+    if (question && inputRef.current) inputRef.current.focus();
+  }, [question]);
 
   // ---------- UI ----------
+  const history = JSON.parse(localStorage.getItem("hugs_history") || "[]");
+
   return (
     <div className="page">
       <div className="scrim" />
 
-
+      {/* GOLD CARD */}
       <div className="overlay">
+        {/* Bulb edge strips (top/right/bottom/left) */}
+        <div className="bulbs top" aria-hidden />
+        <div className="bulbs right" aria-hidden />
+        <div className="bulbs bottom" aria-hidden />
+        <div className="bulbs left" aria-hidden />
+
         <main className="app-wrap">
           {/* HUD */}
           <header className="hud" style={{ justifyContent: "space-between" }}>
             <div className="hud">
               <span className="badge">Level {level}</span>
-              <span className="badge">{perQuestionSeconds}s • {roundTarget} Q/Round</span>
-              <span className="badge">Q {displayQ}/{roundTarget}</span>
-              {started && !pausedBetweenLevels && (<span className="badge">⏱ {secondsLeft}s</span>)}
+              <span className="badge">
+                {perQuestionSeconds}s • {roundTarget} Q/Round
+              </span>
+              <span className="badge">
+                Q {Math.min(askedInLevel + 1, roundTarget)}/{roundTarget}
+              </span>
+              {started && !pausedBetweenLevels && (
+                <span className="badge">⏱ {secondsLeft}s</span>
+              )}
             </div>
 
             <div className="hud">
-              <button className="chip" onClick={() => setShowHistory(s => !s)}>HUGS</button>
-              <span className="badge">Wallet: {wallet?.address ? wallet.address : "—"}</span>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setShowHistory((v) => !v)}
+                aria-expanded={showHistory}
+                aria-controls="hugs-history"
+              >
+                HUGS: {totalHugs}
+              </button>
+
+              <span className="badge">
+                Wallet: {wallet?.address ? wallet.address : "—"}
+              </span>
               {wallet?.address ? (
-                <button className="btn btn-ghost" onClick={resetWallet}>Remove</button>
+                <button className="btn btn-ghost" onClick={resetWallet}>
+                  Remove
+                </button>
               ) : (
-                <button className="btn btn-blue" onClick={makeWallet}>Create Wallet</button>
+                <button className="btn btn-blue" onClick={makeWallet}>
+                  Create Wallet
+                </button>
               )}
             </div>
           </header>
@@ -230,21 +294,22 @@ export default function App() {
           {!started ? (
             <div className="start-wrap">
               <p className="subtitle">
-                {roundTarget} questions • {perQuestionSeconds}s each. Earn {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
+                {roundTarget} questions • {perQuestionSeconds} seconds each. Earn{" "}
+                {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
               </p>
-              <p>Press <span className="kbd">Enter</span> to start</p>
-              <div className="mobile-actions">
-                <button className="btn btn-green" onClick={startOrNext}>Start</button>
-              </div>
+              <p>
+                Press <span className="kbd">Enter</span> to start
+              </p>
             </div>
           ) : pausedBetweenLevels ? (
             <div className="start-wrap">
               <h3 className="level">Level {level} Complete</h3>
-              <p className="subtitle">Correct: {correctInLevel}/{roundTarget}.</p>
-              <p>Press <span className="kbd">Enter</span> to start Level {level + 1}.</p>
-              <div className="mobile-actions">
-                <button className="btn btn-green" onClick={startOrNext}>Start Level {level + 1}</button>
-              </div>
+              <p className="subtitle">
+                Correct: {correctInLevel}/{roundTarget}.
+              </p>
+              <p>
+                Press <span className="kbd">Enter</span> to start Level {level + 1}.
+              </p>
             </div>
           ) : (
             <>
@@ -260,51 +325,89 @@ export default function App() {
                   onChange={(e) => setAnswer(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      e.preventDefault(); e.stopPropagation();
-                      if (norm(answer).length > 0) submit(); else advanceAsWrong();
+                      if (norm(answer).length > 0) submit();
+                      else advanceAsWrong();
                     }
                   }}
+                  enterKeyHint="go"
+                  inputMode="text"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-label="Your trivia answer"
+                  onFocus={() => {
+                    setTimeout(
+                      () =>
+                        inputRef.current?.scrollIntoView({
+                          block: "center",
+                          behavior: "smooth",
+                        }),
+                      250
+                    );
+                  }}
                 />
-                <button className="btn btn-blue" onClick={submit}>Submit</button>
+                <button className="btn btn-blue" onClick={submit}>
+                  Submit
+                </button>
               </div>
 
+              {/* Mobile-friendly action row */}
               <div className="mobile-actions">
-                <button className="btn btn-green" onClick={submit}>Submit</button>
-                <button className="btn btn-ghost" onClick={advanceAsWrong}>Skip</button>
+                <button className="btn btn-blue" onClick={submit}>
+                  Submit
+                </button>
+                <button className="btn btn-green" onClick={advanceAsWrong}>
+                  Skip
+                </button>
               </div>
 
               {feedback && <div className="feedback">{feedback}</div>}
             </>
           )}
 
-          {/* History Drawer */}
+          {/* History panel */}
           {showHistory && (
-            <div style={{marginTop:12, background:"rgba(255,255,255,.75)", borderRadius:12, padding:12}}>
-              <strong style={{color:"#111"}}>Hugs History</strong>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%", color:"#111", borderCollapse:"collapse", marginTop:8, fontSize:14}}>
+            <section id="hugs-history" className="history">
+              <div className="history-head">
+                <strong>Hugs History</strong>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setShowHistory(false)}
+                  aria-label="Close history"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="history-total">Total HUGS: {totalHugs}</div>
+              {history.length === 0 ? (
+                <div className="muted">No games yet.</div>
+              ) : (
+                <table className="history-table">
                   <thead>
                     <tr>
-                      <th align="left">Date</th>
-                      <th>Level</th><th>Correct</th><th>Duration</th><th>HUGS</th>
+                      <th>Date</th>
+                      <th>Level</th>
+                      <th>Correct</th>
+                      <th>Duration</th>
+                      <th>HUGS</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {history.length === 0 ? (
-                      <tr><td colSpan="5" style={{padding:"8px 0"}}>No games yet.</td></tr>
-                    ) : history.map((r,i)=>(
+                    {history.map((r, i) => (
                       <tr key={i}>
                         <td>{new Date(r.ts).toLocaleString()}</td>
-                        <td align="center">{r.level}</td>
-                        <td align="center">{r.correct}/{r.outOf}</td>
-                        <td align="center">{r.duration}s</td>
-                        <td align="center">{r.hugs}</td>
+                        <td>{r.level}</td>
+                        <td>
+                          {r.correct}/{r.total}
+                        </td>
+                        <td>{r.duration}s</td>
+                        <td>{r.hugs}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </div>
+              )}
+            </section>
           )}
         </main>
       </div>
