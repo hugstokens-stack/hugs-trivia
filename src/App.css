@@ -1,4 +1,4 @@
-/* ===== 22 Seconds – centered panel + neon frame ===== */
+/* ===== 22 Seconds – centered panel + neon frame + card bulbs + mobile actions ===== */
 
 :root{
   --panel-bg: rgba(246,213,107,0.92);
@@ -50,84 +50,44 @@ body{ animation:fadeInBackground 1.2s ease-out forwards }
   animation:bulb 1.4s infinite ease-in-out;
   opacity:.85;
 }
-/* place bulbs around the rectangle */
-.neon-frame li:nth-child(n){
-  /* total 60 bulbs: 20 top, 20 bottom, 10 left, 10 right */
-}
-@counter-style dummy { system: cyclic; symbols: 0; }
-:root{} /* keep CSS parser happy */
-
 /* Top edge (0–19) */
 .neon-frame li:nth-child(-n+20){ top:0; }
-.neon-frame li:nth-child(1){ left:0; }
-.neon-frame li:nth-child(2){ left:5%; }
-.neon-frame li:nth-child(3){ left:10%; }
-.neon-frame li:nth-child(4){ left:15%; }
-.neon-frame li:nth-child(5){ left:20%; }
-.neon-frame li:nth-child(6){ left:25%; }
-.neon-frame li:nth-child(7){ left:30%; }
-.neon-frame li:nth-child(8){ left:35%; }
-.neon-frame li:nth-child(9){ left:40%; }
-.neon-frame li:nth-child(10){ left:45%; }
-.neon-frame li:nth-child(11){ left:50%; }
-.neon-frame li:nth-child(12){ left:55%; }
-.neon-frame li:nth-child(13){ left:60%; }
-.neon-frame li:nth-child(14){ left:65%; }
-.neon-frame li:nth-child(15){ left:70%; }
-.neon-frame li:nth-child(16){ left:75%; }
-.neon-frame li:nth-child(17){ left:80%; }
-.neon-frame li:nth-child(18){ left:85%; }
-.neon-frame li:nth-child(19){ left:90%; }
-.neon-frame li:nth-child(20){ left:95%; }
-
-/* Bottom edge (21–40) */
+.neon-frame li:nth-child(1){ left:0; } .neon-frame li:nth-child(2){ left:5%; }
+.neon-frame li:nth-child(3){ left:10%; } .neon-frame li:nth-child(4){ left:15%; }
+.neon-frame li:nth-child(5){ left:20%; } .neon-frame li:nth-child(6){ left:25%; }
+.neon-frame li:nth-child(7){ left:30%; } .neon-frame li:nth-child(8){ left:35%; }
+.neon-frame li:nth-child(9){ left:40%; } .neon-frame li:nth-child(10){ left:45%; }
+.neon-frame li:nth-child(11){ left:50%; } .neon-frame li:nth-child(12){ left:55%; }
+.neon-frame li:nth-child(13){ left:60%; } .neon-frame li:nth-child(14){ left:65%; }
+.neon-frame li:nth-child(15){ left:70%; } .neon-frame li:nth-child(16){ left:75%; }
+.neon-frame li:nth-child(17){ left:80%; } .neon-frame li:nth-child(18){ left:85%; }
+.neon-frame li:nth-child(19){ left:90%; } .neon-frame li:nth-child(20){ left:95%; }
+/* Bottom (21–40) */
 .neon-frame li:nth-child(n+21):nth-child(-n+40){ bottom:0; }
-.neon-frame li:nth-child(21){ left:0; }
-.neon-frame li:nth-child(22){ left:5%; }
-.neon-frame li:nth-child(23){ left:10%; }
-.neon-frame li:nth-child(24){ left:15%; }
-.neon-frame li:nth-child(25){ left:20%; }
-.neon-frame li:nth-child(26){ left:25%; }
-.neon-frame li:nth-child(27){ left:30%; }
-.neon-frame li:nth-child(28){ left:35%; }
-.neon-frame li:nth-child(29){ left:40%; }
-.neon-frame li:nth-child(30){ left:45%; }
-.neon-frame li:nth-child(31){ left:50%; }
-.neon-frame li:nth-child(32){ left:55%; }
-.neon-frame li:nth-child(33){ left:60%; }
-.neon-frame li:nth-child(34){ left:65%; }
-.neon-frame li:nth-child(35){ left:70%; }
-.neon-frame li:nth-child(36){ left:75%; }
-.neon-frame li:nth-child(37){ left:80%; }
-.neon-frame li:nth-child(38){ left:85%; }
-.neon-frame li:nth-child(39){ left:90%; }
-.neon-frame li:nth-child(40){ left:95%; }
-
-/* Left edge (41–50) */
+.neon-frame li:nth-child(21){ left:0; } .neon-frame li:nth-child(22){ left:5%; }
+.neon-frame li:nth-child(23){ left:10%; } .neon-frame li:nth-child(24){ left:15%; }
+.neon-frame li:nth-child(25){ left:20%; } .neon-frame li:nth-child(26){ left:25%; }
+.neon-frame li:nth-child(27){ left:30%; } .neon-frame li:nth-child(28){ left:35%; }
+.neon-frame li:nth-child(29){ left:40%; } .neon-frame li:nth-child(30){ left:45%; }
+.neon-frame li:nth-child(31){ left:50%; } .neon-frame li:nth-child(32){ left:55%; }
+.neon-frame li:nth-child(33){ left:60%; } .neon-frame li:nth-child(34){ left:65%; }
+.neon-frame li:nth-child(35){ left:70%; } .neon-frame li:nth-child(36){ left:75%; }
+.neon-frame li:nth-child(37){ left:80%; } .neon-frame li:nth-child(38){ left:85%; }
+.neon-frame li:nth-child(39){ left:90%; } .neon-frame li:nth-child(40){ left:95%; }
+/* Left (41–50) */
 .neon-frame li:nth-child(n+41):nth-child(-n+50){ left:0; }
-.neon-frame li:nth-child(41){ top:5%; }
-.neon-frame li:nth-child(42){ top:15%; }
-.neon-frame li:nth-child(43){ top:25%; }
-.neon-frame li:nth-child(44){ top:35%; }
-.neon-frame li:nth-child(45){ top:45%; }
-.neon-frame li:nth-child(46){ top:55%; }
-.neon-frame li:nth-child(47){ top:65%; }
-.neon-frame li:nth-child(48){ top:75%; }
-.neon-frame li:nth-child(49){ top:85%; }
-.neon-frame li:nth-child(50){ top:95%; }
-
-/* Right edge (51–60) */
+.neon-frame li:nth-child(41){ top:5%; } .neon-frame li:nth-child(42){ top:15%; }
+.neon-frame li:nth-child(43){ top:25%; } .neon-frame li:nth-child(44){ top:35%; }
+.neon-frame li:nth-child(45){ top:45%; } .neon-frame li:nth-child(46){ top:55%; }
+.neon-frame li:nth-child(47){ top:65%; } .neon-frame li:nth-child(48){ top:75%; }
+.neon-frame li:nth-child(49){ top:85%; } .neon-frame li:nth-child(50){ top:95%; }
+/* Right (51–60) */
 .neon-frame li:nth-child(n+51){ right:0; }
-.neon-frame li:nth-child(51){ top:5%; }
-.neon-frame li:nth-child(52){ top:15%; }
-.neon-frame li:nth-child(53){ top:25%; }
-.neon-frame li:nth-child(54){ top:35%; }
-.neon-frame li:nth-child(55){ top:45%; }
-.neon-frame li:nth-child(56){ top:55%; }
-.neon-frame li:nth-child(57){ top:65%; }
-.neon-frame li:nth-child(58){ top:75%; }
-.neon-frame li:nth-child(59){ top:85%; }
-.neon-frame li:nth-child(60){ top:95%; }
+.neon-frame li:nth-child(51){ top:5%; } .neon-frame li:nth-child(52){ top:15%; }
+.neon-frame li:nth-child(53){ top:25%; } .neon-frame li:nth-child(54){ top:35%; }
+.neon-frame li:nth-child(55){ top:45%; } .neon-frame li:nth-child(56){ top:55%; }
+.neon-frame li:nth-child(57){ top:65%; } .neon-frame li:nth-child(58){ top:75%; }
+.neon-frame li:nth-child(59){ top:85%; } .neon-frame li:nth-child(60){ top:95%; }
 
 @keyframes bulb{
   0%, 100% { filter:brightness(.9); transform:scale(1); }
@@ -154,6 +114,22 @@ body{ animation:fadeInBackground 1.2s ease-out forwards }
 }
 .overlay *{ color:var(--text) }
 
+/* --- Bulb border around the card (no extra markup) --- */
+@keyframes chase { to { transform: rotate(1turn); } }
+.overlay::before{
+  content:"";
+  position:absolute; inset:-12px;
+  border-radius:calc(var(--radius) + 12px);
+  background:
+    conic-gradient(from 0deg,
+      #ffd54f 0 10deg, transparent 10deg 30deg) 0 0 / 28px 28px repeat;
+  filter: drop-shadow(0 0 6px rgba(255,235,130,.9))
+          drop-shadow(0 0 14px rgba(255,235,130,.6));
+  animation: chase 6s linear infinite;
+  pointer-events:none;
+  z-index:-1;
+}
+
 /* Typography & controls */
 h1.title{ margin:0 0 14px; font-size:clamp(36px, 5.6vw, 54px); font-weight:800; line-height:1.2 }
 .level{ font-size:1.5rem; font-weight:700; margin:12px 0 8px }
@@ -162,10 +138,11 @@ h1.title{ margin:0 0 14px; font-size:clamp(36px, 5.6vw, 54px); font-weight:800; 
 .badge{ background:rgba(255,255,255,.9); color:#111; font-weight:700; border-radius:999px; padding:6px 10px }
 .btn{ display:inline-flex; align-items:center; justify-content:center; padding:12px 20px; border-radius:12px; border:0; cursor:pointer; font-weight:600; font-size:1.15rem; line-height:1.2; transition:filter .15s, transform .1s }
 .btn:active{ transform:translateY(1px) }
-.btn-blue{ background:var(--accent-blue); color:#fff }
-.btn-blue:hover{ filter:brightness(1.05) }
+.btn-blue{ background:var(--accent-blue); color:#fff } .btn-blue:hover{ filter:brightness(1.05) }
+.btn-green{ background:var(--accent-green); color:#fff } .btn-green:hover{ filter:brightness(1.05) }
 .btn-ghost{ background:transparent; border:1px solid rgba(0,0,0,.15); color:var(--text) }
 
+.controls{ display:flex; gap:12px; align-items:center; flex-wrap:wrap }
 .controls input{
   height:56px; padding:0 14px; font-size:1.25rem;
   border-radius:10px; border:1px solid rgba(0,0,0,.25);
@@ -174,7 +151,16 @@ h1.title{ margin:0 0 14px; font-size:clamp(36px, 5.6vw, 54px); font-weight:800; 
 .controls input:focus{ outline:2px solid var(--accent-blue) }
 .feedback{ margin-top:12px; font-size:1.25rem; font-weight:700; color:var(--accent-green) }
 
-/* mobile tweak */
+/* ---- Mobile: show Start/Next and Submit/Skip buttons ---- */
+.mobile-actions{
+  display:none;
+  margin-top:10px;
+  gap:10px;
+}
 @media (max-width: 720px){
   .overlay{ top:auto; bottom:7vh; transform:translateX(-50%) }
+  .mobile-actions{ display:flex; }
+  /* bigger touch targets on phone */
+  .btn{ padding:14px 22px; font-size:1.1rem }
+  .controls input{ height:54px; font-size:1.15rem; width:100% }
 }

@@ -27,8 +27,10 @@ export default function App() {
 
   // refs
   const inputRef = useRef(null);
-  const usedKeysRef = useRef(new Set());         // global no-repeat
-  const submitLockRef = useRef(false);           // prevents Enter double-fire
+
+  // global no-repeat set across the whole session
+  // key by normalized question+answers (stronger than ids)
+  const usedKeysRef = useRef(new Set());
 
   // ---------- helpers ----------
   const norm = (s) => String(s ?? "").trim().toLowerCase();
@@ -81,7 +83,6 @@ export default function App() {
     setAnswer("");
     setFeedback("");
     setSecondsLeft(perQuestionSeconds);
-    submitLockRef.current = false; // unlock for the new question
   }
 
   function startLevel(nextLevel) {
@@ -108,7 +109,6 @@ export default function App() {
     }
     setPausedBetweenLevels(true);
     setSecondsLeft(perQuestionSeconds);
-    setQuestion(null);
   }
 
   function isCorrect(user, correct) {
@@ -118,11 +118,8 @@ export default function App() {
   }
 
   function advanceAsWrong() {
-    if (submitLockRef.current || pausedBetweenLevels) return;
-    submitLockRef.current = true;
-
     setFeedback("❌ Skipping…");
-    const nextAsked = Math.min(askedInLevel + 1, roundTarget);
+    const nextAsked = askedInLevel + 1;
     setTimeout(() => {
       setAskedInLevel(nextAsked);
       loadNextQuestion(nextAsked);
@@ -130,23 +127,20 @@ export default function App() {
   }
 
   function submit() {
-    if (!question || pausedBetweenLevels) return;
-    if (submitLockRef.current) return;      // prevent double-submit
-    submitLockRef.current = true;
-
+    if (!question) return;
     const ok =
       isCorrect(answer, question.answer) ||
       (question.answers && isCorrect(answer, question.answers));
 
-    const nextAsked = Math.min(askedInLevel + 1, roundTarget);
+    const nextAsked = askedInLevel + 1;
 
     if (ok) {
-      setCorrectInLevel((c) => Math.min(c + 1, roundTarget));
+      setCorrectInLevel((c) => c + 1);
       setFeedback("✅ Correct!");
       setTimeout(() => {
         setAskedInLevel(nextAsked);
         loadNextQuestion(nextAsked);
-      }, 260);
+      }, 450);
     } else {
       advanceAsWrong();
     }
@@ -171,13 +165,22 @@ export default function App() {
     setWalletState(null);
   }
 
+  // Desktop/phone friendly: a single action to start/advance
+  function startOrNext() {
+    if (!started) {
+      setStarted(true);
+      startLevel(1);
+    } else if (pausedBetweenLevels) {
+      setFeedback("");
+      startLevel(level + 1);
+    }
+  }
+
   // ---------- effects ----------
+  // Global Enter handling
   useEffect(() => {
     function onKey(e) {
       if (e.key !== "Enter") return;
-
-      // Do not let the global handler fire if the input has focus
-      if (document.activeElement === inputRef.current) return;
 
       if (!started) {
         setStarted(true);
@@ -191,11 +194,12 @@ export default function App() {
       }
       if (!question) return;
 
-      // empty = skip, text = submit
-      if (norm(answer).length > 0) submit();
-      else advanceAsWrong();
+      if (norm(answer).length > 0) {
+        submit();
+      } else {
+        advanceAsWrong();
+      }
     }
-
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [started, pausedBetweenLevels, level, question, answer]);
@@ -211,25 +215,25 @@ export default function App() {
     return () => clearTimeout(t);
   }, [secondsLeft, started, pausedBetweenLevels, question]);
 
-  // Focus the input when a new question arrives
+  // Auto-focus the input whenever a new question arrives
   useEffect(() => {
     if (question && inputRef.current) inputRef.current.focus();
   }, [question]);
 
-  // HUD counter value (no more 9/7)
-  const displayedQ = pausedBetweenLevels
-    ? roundTarget
-    : Math.min(askedInLevel + 1, roundTarget);
+  // Q display that never shows overflow (no 9/7)
+  const displayQ = started && !pausedBetweenLevels && question
+    ? Math.min(askedInLevel + 1, roundTarget)
+    : Math.min(askedInLevel, roundTarget);
 
   // ---------- UI ----------
   return (
     <div className="page">
       <div className="scrim" />
 
-      {/* Neon frame bulbs */}
-      <ul className="neon-frame" aria-hidden>
+      {/* visible neon frame around the viewport */}
+      <ul className="neon-frame">
         {Array.from({ length: 60 }).map((_, i) => (
-          <li key={i} />
+          <li key={i}></li>
         ))}
       </ul>
 
@@ -242,13 +246,13 @@ export default function App() {
               <span className="badge">
                 {perQuestionSeconds}s • {roundTarget} Q/Round
               </span>
-              <span className="badge">Q {displayedQ}/{roundTarget}</span>
+              <span className="badge">Q {displayQ}/{roundTarget}</span>
               {started && !pausedBetweenLevels && (
                 <span className="badge">⏱ {secondsLeft}s</span>
               )}
             </div>
             <div className="hud">
-              <span className="badge">HUGS: 0</span>
+              <span className="badge">HUGS: {0 /* replace with live balance when wiring */}</span>
               <span className="badge">
                 Wallet: {wallet?.address ? wallet.address : "—"}
               </span>
@@ -269,22 +273,32 @@ export default function App() {
           {!started ? (
             <div className="start-wrap">
               <p className="subtitle">
-                {roundTarget} questions • {perQuestionSeconds} seconds each.
-                Earn {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
+                {roundTarget} questions • {perQuestionSeconds} seconds each. Earn{" "}
+                {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
               </p>
               <p>
                 Press <span className="kbd">Enter</span> to start
               </p>
+              {/* Mobile visible start button */}
+              <div className="mobile-actions">
+                <button className="btn btn-green" onClick={startOrNext}>Start</button>
+              </div>
             </div>
           ) : pausedBetweenLevels ? (
             <div className="start-wrap">
               <h3 className="level">Level {level} Complete</h3>
               <p className="subtitle">
-                Correct: {Math.min(correctInLevel, roundTarget)}/{roundTarget}.
+                Correct: {correctInLevel}/{roundTarget}.
               </p>
               <p>
                 Press <span className="kbd">Enter</span> to start Level {level + 1}.
               </p>
+              {/* Mobile visible next-level button */}
+              <div className="mobile-actions">
+                <button className="btn btn-green" onClick={startOrNext}>
+                  Start Level {level + 1}
+                </button>
+              </div>
             </div>
           ) : (
             <>
@@ -308,6 +322,12 @@ export default function App() {
                 <button className="btn btn-blue" onClick={submit}>
                   Submit
                 </button>
+              </div>
+
+              {/* Mobile-friendly actions */}
+              <div className="mobile-actions">
+                <button className="btn btn-green" onClick={submit}>Submit</button>
+                <button className="btn btn-ghost" onClick={advanceAsWrong}>Skip</button>
               </div>
 
               {feedback && <div className="feedback">{feedback}</div>}
