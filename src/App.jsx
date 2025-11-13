@@ -17,12 +17,13 @@ export default function App() {
   const [secondsLeft, setSecondsLeft] = useState(CONFIG.secondsPerQuestion);
   const [askedInLevel, setAskedInLevel] = useState(0);
   const [correctInLevel, setCorrectInLevel] = useState(0);
+  const [levelStartTime, setLevelStartTime] = useState(null);
 
+  // wallet + hugs
   const [wallet, setWalletState] = useState(getWallet());
+  const [hugsBalance, setHugsBalance] = useState(0);
+  const [history, setHistory] = useState([]); // {date, level, correct, duration, hugs}
   const [showHistory, setShowHistory] = useState(false);
-  const [totalHugs, setTotalHugs] = useState(
-    () => Number(localStorage.getItem("total_hugs") || 0)
-  );
 
   // constants
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
@@ -30,12 +31,21 @@ export default function App() {
 
   // refs
   const inputRef = useRef(null);
-
-  // global no-repeat across the session
   const usedKeysRef = useRef(new Set());
+
+  const isMobile =
+    typeof window !== "undefined" && window.innerWidth < 800;
+
+  // HUD question counter (keeps 7/7, no more 9/7 weirdness)
+  const currentQNumber = !started
+    ? 0
+    : pausedBetweenLevels
+    ? roundTarget
+    : Math.min(askedInLevel + 1, roundTarget);
 
   // ---------- helpers ----------
   const norm = (s) => String(s ?? "").trim().toLowerCase();
+
   const keyFor = (q) =>
     `${norm(q.q || q.question)}|${
       Array.isArray(q.a || q.answers)
@@ -58,25 +68,21 @@ export default function App() {
     return null;
   }
 
-  function loadNextQuestion(nextAskedCount) {
-    // End of round?
-    if (nextAskedCount >= roundTarget) {
-      completeLevel();
-      return;
-    }
-
-    // try same-level first, then any unused
+  // load the next question for this level (no round-end logic here)
+  function loadNextQuestion() {
     let local = pickFromLevel(level);
-    if (!local) local = pickAnyUnused();
+    if (!local) {
+      // fallback: anywhere, still no repeats
+      local = pickAnyUnused();
+    }
 
     if (!local) {
       setQuestion({ question: "Out of questions 🎉", answer: "" });
       setPausedBetweenLevels(true);
-      setFeedback("No more unique questions. Press Enter to start over.");
+      setFeedback("No more unique questions. Press Enter or tap Start to play again.");
       return;
     }
 
-    // register no-repeat and show
     usedKeysRef.current.add(keyFor(local));
     setQuestion({ question: local.q, answer: local.a, answers: local.a });
     setAnswer("");
@@ -89,43 +95,49 @@ export default function App() {
     setAskedInLevel(0);
     setCorrectInLevel(0);
     setPausedBetweenLevels(false);
-    loadNextQuestion(0);
+    setLevelStartTime(Date.now());
+    loadNextQuestion();
   }
 
-  function addHistoryRow(okCount) {
-    const row = {
-      ts: Date.now(),
-      level,
-      correct: okCount,
-      total: roundTarget,
-      duration: roundTarget * perQuestionSeconds,
-      hugs: okCount === roundTarget ? CONFIG.tokensPerCorrectRound : 0,
-    };
-    const prev = JSON.parse(localStorage.getItem("hugs_history") || "[]");
-    prev.unshift(row);
-    localStorage.setItem("hugs_history", JSON.stringify(prev));
-    if (row.hugs) {
-      const newTotal = Number(localStorage.getItem("total_hugs") || 0) + row.hugs;
-      localStorage.setItem("total_hugs", String(newTotal));
-      setTotalHugs(newTotal);
-    }
-  }
+  function completeLevel(finalCorrect = correctInLevel) {
+    const duration =
+      levelStartTime != null
+        ? Math.max(
+            1,
+            Math.round((Date.now() - levelStartTime) / 1000)
+          )
+        : null;
 
-  function completeLevel() {
-    addHistoryRow(correctInLevel);
+    const earned =
+      finalCorrect === roundTarget ? CONFIG.tokensPerCorrectRound : 0;
 
-    if (correctInLevel === roundTarget && wallet?.address) {
-      rewardTokens(wallet.address, CONFIG.tokensPerCorrectRound)
+    // record in history table
+    setHistory((prev) => [
+      ...prev,
+      {
+        date: new Date().toISOString(),
+        level,
+        correct: finalCorrect,
+        duration,
+        hugs: earned,
+      },
+    ]);
+    setHugsBalance((prev) => prev + earned);
+
+    if (earned > 0 && wallet?.address) {
+      rewardTokens(wallet.address, earned)
         .then(() =>
           setFeedback(
-            `🎉 Level Complete! +${CONFIG.tokensPerCorrectRound} ${CONFIG.tokenCode} awarded.`
+            `🎉 Level Complete! +${earned} ${CONFIG.tokenCode} awarded.`
           )
         )
         .catch(() =>
-          setFeedback("⚠️ Reward queued. (Enable XRPL to pay for real)")
+          setFeedback(
+            "⚠️ Level complete. Reward queued (XRPL not configured)."
+          )
         );
     } else {
-      setFeedback("⏸️ Level complete. Press Enter for the next level.");
+      setFeedback("⏸️ Level complete. Press Enter or tap Next for the next level.");
     }
 
     setPausedBetweenLevels(true);
@@ -143,12 +155,17 @@ export default function App() {
     const nextAsked = askedInLevel + 1;
     setTimeout(() => {
       setAskedInLevel(nextAsked);
-      loadNextQuestion(nextAsked);
+      if (nextAsked >= roundTarget) {
+        completeLevel(correctInLevel);
+      } else {
+        loadNextQuestion();
+      }
     }, 220);
   }
 
   function submit() {
     if (!question) return;
+
     const ok =
       isCorrect(answer, question.answer) ||
       (question.answers && isCorrect(answer, question.answers));
@@ -156,12 +173,17 @@ export default function App() {
     const nextAsked = askedInLevel + 1;
 
     if (ok) {
+      const newCorrect = correctInLevel + 1;
       setCorrectInLevel((c) => c + 1);
       setFeedback("✅ Correct!");
       setTimeout(() => {
         setAskedInLevel(nextAsked);
-        loadNextQuestion(nextAsked);
-      }, 300);
+        if (nextAsked >= roundTarget) {
+          completeLevel(newCorrect);
+        } else {
+          loadNextQuestion();
+        }
+      }, 450);
     } else {
       advanceAsWrong();
     }
@@ -181,6 +203,7 @@ export default function App() {
     const w = await createTestWallet();
     setWalletState(w);
   }
+
   function resetWallet() {
     clearWallet();
     setWalletState(null);
@@ -203,16 +226,22 @@ export default function App() {
         startLevel(1);
         return;
       }
+
       if (pausedBetweenLevels) {
         setFeedback("");
         startLevel(level + 1);
         return;
       }
+
       if (!question) return;
 
-      if (norm(answer).length > 0) submit();
-      else advanceAsWrong();
+      if (norm(answer).length > 0) {
+        submit();
+      } else {
+        advanceAsWrong();
+      }
     }
+
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [started, pausedBetweenLevels, level, question, answer]);
@@ -228,26 +257,19 @@ export default function App() {
     return () => clearTimeout(t);
   }, [secondsLeft, started, pausedBetweenLevels, question]);
 
-  // Auto-focus the input on new question
+  // Auto-focus the input whenever a new question arrives
   useEffect(() => {
-    if (question && inputRef.current) inputRef.current.focus();
+    if (question && inputRef.current) {
+      inputRef.current.focus();
+    }
   }, [question]);
 
   // ---------- UI ----------
-  const history = JSON.parse(localStorage.getItem("hugs_history") || "[]");
 
   return (
     <div className="page">
       <div className="scrim" />
-
-      {/* GOLD CARD */}
       <div className="overlay">
-        {/* Bulb edge strips (top/right/bottom/left) */}
-        <div className="bulbs top" aria-hidden />
-        <div className="bulbs right" aria-hidden />
-        <div className="bulbs bottom" aria-hidden />
-        <div className="bulbs left" aria-hidden />
-
         <main className="app-wrap">
           {/* HUD */}
           <header className="hud" style={{ justifyContent: "space-between" }}>
@@ -257,23 +279,21 @@ export default function App() {
                 {perQuestionSeconds}s • {roundTarget} Q/Round
               </span>
               <span className="badge">
-                Q {Math.min(askedInLevel + 1, roundTarget)}/{roundTarget}
+                Q {currentQNumber}/{roundTarget}
               </span>
-              {started && !pausedBetweenLevels && (
+              {started && !pausedBetweenLevels && question && (
                 <span className="badge">⏱ {secondsLeft}s</span>
               )}
             </div>
 
             <div className="hud">
               <button
-                className="btn btn-ghost"
-                onClick={() => setShowHistory((v) => !v)}
-                aria-expanded={showHistory}
-                aria-controls="hugs-history"
+                type="button"
+                className="badge badge-click"
+                onClick={() => setShowHistory((s) => !s)}
               >
-                HUGS: {totalHugs}
+                HUGS: {hugsBalance}
               </button>
-
               <span className="badge">
                 Wallet: {wallet?.address ? wallet.address : "—"}
               </span>
@@ -291,15 +311,29 @@ export default function App() {
 
           <h1 className="title">22 Seconds</h1>
 
+          {/* START / BETWEEN-LEVEL / QUESTION STATES */}
           {!started ? (
             <div className="start-wrap">
               <p className="subtitle">
-                {roundTarget} questions • {perQuestionSeconds} seconds each. Earn{" "}
-                {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
+                {roundTarget} questions • {perQuestionSeconds} seconds each.
+                Earn {CONFIG.tokensPerCorrectRound} {CONFIG.tokenCode} for a perfect round.
               </p>
               <p>
                 Press <span className="kbd">Enter</span> to start
               </p>
+
+              {/* Mobile start button */}
+              {isMobile && (
+                <button
+                  className="btn btn-blue mobile-start"
+                  onClick={() => {
+                    setStarted(true);
+                    startLevel(1);
+                  }}
+                >
+                  Start
+                </button>
+              )}
             </div>
           ) : pausedBetweenLevels ? (
             <div className="start-wrap">
@@ -308,13 +342,28 @@ export default function App() {
                 Correct: {correctInLevel}/{roundTarget}.
               </p>
               <p>
-                Press <span className="kbd">Enter</span> to start Level {level + 1}.
+                Press <span className="kbd">Enter</span> for next level.
               </p>
+
+              {/* Mobile next-level button */}
+              {isMobile && (
+                <button
+                  className="btn btn-blue mobile-next"
+                  onClick={() => {
+                    setFeedback("");
+                    startLevel(level + 1);
+                  }}
+                >
+                  Next Level
+                </button>
+              )}
             </div>
           ) : (
             <>
               <h3 className="level">Question</h3>
-              <p className="subtitle">{question?.question ?? "Loading…"}</p>
+              <p className="subtitle">
+                {question?.question ?? "Loading…"}
+              </p>
 
               <div className="controls">
                 <input
@@ -323,89 +372,70 @@ export default function App() {
                   value={answer}
                   placeholder="Your answer…"
                   onChange={(e) => setAnswer(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      if (norm(answer).length > 0) submit();
-                      else advanceAsWrong();
-                    }
-                  }}
-                  enterKeyHint="go"
-                  inputMode="text"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  aria-label="Your trivia answer"
-                  onFocus={() => {
-                    setTimeout(
-                      () =>
-                        inputRef.current?.scrollIntoView({
-                          block: "center",
-                          behavior: "smooth",
-                        }),
-                      250
-                    );
-                  }}
                 />
                 <button className="btn btn-blue" onClick={submit}>
                   Submit
                 </button>
-              </div>
-
-              {/* Mobile-friendly action row */}
-              <div className="mobile-actions">
-                <button className="btn btn-blue" onClick={submit}>
-                  Submit
-                </button>
-                <button className="btn btn-green" onClick={advanceAsWrong}>
-                  Skip
-                </button>
+                {isMobile && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={advanceAsWrong}
+                  >
+                    Skip
+                  </button>
+                )}
               </div>
 
               {feedback && <div className="feedback">{feedback}</div>}
             </>
           )}
 
-          {/* History panel */}
+          {/* HUGS history panel */}
           {showHistory && (
-            <section id="hugs-history" className="history">
-              <div className="history-head">
-                <strong>Hugs History</strong>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => setShowHistory(false)}
-                  aria-label="Close history"
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="history-total">Total HUGS: {totalHugs}</div>
+            <section className="history">
+              <h3 className="history-title">Hugs History</h3>
+              <p className="history-summary">
+                Total HUGS: {hugsBalance}
+              </p>
               {history.length === 0 ? (
-                <div className="muted">No games yet.</div>
+                <p className="history-empty">
+                  Play a perfect round to earn your first HUGS.
+                </p>
               ) : (
-                <table className="history-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Level</th>
-                      <th>Correct</th>
-                      <th>Duration</th>
-                      <th>HUGS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((r, i) => (
-                      <tr key={i}>
-                        <td>{new Date(r.ts).toLocaleString()}</td>
-                        <td>{r.level}</td>
-                        <td>
-                          {r.correct}/{r.total}
-                        </td>
-                        <td>{r.duration}s</td>
-                        <td>{r.hugs}</td>
+                <div className="history-table-wrap">
+                  <table className="history-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Level</th>
+                        <th>Correct</th>
+                        <th>Duration</th>
+                        <th>HUGS</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {history.map((row, i) => (
+                        <tr key={i}>
+                          <td>
+                            {new Date(row.date).toLocaleString(undefined, {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </td>
+                          <td>{row.level}</td>
+                          <td>
+                            {row.correct}/{roundTarget}
+                          </td>
+                          <td>{row.duration ?? "—"}s</td>
+                          <td>{row.hugs}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </section>
           )}
