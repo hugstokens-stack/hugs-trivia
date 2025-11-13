@@ -3,6 +3,7 @@ import "./App.css";
 import { CONFIG } from "./config";
 import { getWallet, clearWallet, createTestWallet } from "./wallet";
 import { EXTRA_BANK } from "./extras.js";
+const MULTIPLE_CHOICE_COST = 3; // HUGS cost per multiple-choice credit
 
 export default function App() {
   // ---------- game state ----------
@@ -24,6 +25,8 @@ export default function App() {
   const [hugsBalance, setHugsBalance] = useState(0);
   const [history, setHistory] = useState([]); // {date, level, correct, duration, hugs}
   const [showHistory, setShowHistory] = useState(false);
+const [mcCredits, setMcCredits] = useState(0); // multiple-choice credits
+
 
   // constants
   const roundTarget = useMemo(() => CONFIG.questionsPerRound, []);
@@ -144,6 +147,38 @@ export default function App() {
     setPausedBetweenLevels(true);
     setSecondsLeft(perQuestionSeconds);
   }
+}   // end of completeLevel
+}   // ← line 149
+
+// ⭐⭐⭐ PASTE STARTING HERE (line 150) ⭐⭐⭐
+function buyMultipleChoice() {
+  if (hugsBalance < MULTIPLE_CHOICE_COST) {
+    setFeedback(
+      `You need at least ${MULTIPLE_CHOICE_COST} HUGS to buy multiple-choice help.`
+    );
+    return;
+  }
+
+  // subtract HUGS
+  setHugsBalance((prev) => prev - MULTIPLE_CHOICE_COST);
+
+  // add one MC credit and show feedback using the new total
+  setMcCredits((prev) => {
+    const next = prev + 1;
+    setFeedback(
+      `🎟 Multiple-choice help purchased! You now have ${next} credit${
+        next === 1 ? "" : "s"
+      }.`
+    );
+    return next;
+  });
+}
+// ⭐⭐⭐ STOP PASTING HERE ⭐⭐⭐
+
+function isCorrect(user, correct) {   // ← now moved DOWN to line ~170
+  const U = norm(user);
+  ...
+}
 
   function isCorrect(user, correct) {
     const U = norm(user);
