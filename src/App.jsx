@@ -108,8 +108,9 @@ export default function App() {
           )
         : null;
 
-    const earned =
-      finalCorrect === roundTarget ? CONFIG.tokensPerCorrectRound : 0;
+    
+      const earned = finalCorrect; // 1 HUG per correct answer
+
 
     // record in history table
     setHistory((prev) => [
@@ -399,10 +400,11 @@ export default function App() {
                 Total HUGS: {hugsBalance}
               </p>
               {history.length === 0 ? (
-                <p className="history-empty">
-                  Play a perfect round to earn your first HUGS.
-                </p>
-              ) : (
+  <p className="history-empty">
+    Play a round to earn HUGS for each correct answer.
+  </p>
+) : (
+
                 <div className="history-table-wrap">
                   <table className="history-table">
                     <thead>
