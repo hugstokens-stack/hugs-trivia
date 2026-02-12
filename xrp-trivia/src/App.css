@@ -1,0 +1,130 @@
+// src/App.tsx
+import React, { useState } from "react";
+import "./App.css";
+import QuestionCard from "./QuestionCard";
+
+// Point directly to your Flask backend
+const API = "http://127.0.0.1:5000";
+
+type Wallet = { address?: string; seed?: string } | null;
+
+export default function App() {
+  const [wallet, setWallet] = useState<Wallet>(null);
+  const [balance, setBalance] = useState<number>(0);
+  const [busy, setBusy] = useState<boolean>(false);
+  const [msg, setMsg] = useState<string>("");
+  const [gameStarted, setGameStarted] = useState<boolean>(false);
+
+  async function createWallet() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(`${API}/api/create_wallet`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "create_wallet failed");
+      setWallet({ address: data.address, seed: data.seed });
+      setMsg("Wallet created!");
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshBalance() {
+    if (!wallet?.address) {
+      setMsg("No wallet yet.");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(
+        `${API}/api/get_balance?account=${encodeURIComponent(wallet.address)}`
+      );
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "get_balance failed");
+      // backend returns { ok, hugs: number } — accept both 'hugs' or 'balance'
+      const v = (data.hugs ?? data.balance ?? 0) as number;
+      setBalance(Number(v));
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startGame() {
+    if (!wallet?.address) {
+      setMsg("Create a wallet first.");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(`${API}/api/start_game`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: wallet.address }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "start_game failed");
+      setMsg("Game started");
+      setGameStarted(true);
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <div className="overlay">
+        <header className="bar">
+          <div className="brand">🎯 22 Seconds — 100 Levels</div>
+          <div className="controls">
+            <span>
+              <strong>Wallet:</strong> {wallet?.address ?? "None"}
+            </span>
+            <span>
+              <strong>HUGS:</strong> {balance}
+            </span>
+            <button disabled={busy} onClick={createWallet}>Create Wallet</button>
+            <button disabled={busy} onClick={refreshBalance}>Refresh</button>
+          </div>
+        </header>
+
+        <main className="panel">
+          <h3>Level 1 • Round 1</h3>
+          <p>Test your knowledge and climb the leaderboard. 7 questions • 22 seconds each.</p>
+
+          {!gameStarted ? (
+            <button className="start" disabled={busy} onClick={startGame}>
+              Start Game
+            </button>
+          ) : (
+            <div className="game-box">
+              <QuestionCard
+                onFinish={(correct) => {
+                  if (correct) setMsg("✅ Correct! +5 HUGS (soon)");
+                  else setMsg("❌ Time’s up or wrong answer!");
+                  setGameStarted(false);
+                }}
+              />
+            </div>
+          )}
+
+          {msg && <div className="note">{msg}</div>}
+
+          {wallet?.seed && (
+            <details style={{ marginTop: 12 }}>
+              <summary>Show seed (testnet only)</summary>
+              <code>{wallet.seed}</code>
+            </details>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}

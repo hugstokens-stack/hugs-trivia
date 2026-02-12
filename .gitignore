@@ -1,0 +1,31 @@
+# --- Secrets ---
+.env
+*.env
+API Key.txt
+*.key
+*.pem
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Python ---
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# --- Data / DB ---
+.data/
+*.sqlite
+*.sqlite3
+*.db
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Random accidental files ---
+.txt
