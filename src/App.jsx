@@ -1,42 +1,26 @@
 import React, { useState } from 'react';
-import './App.css';
 
 function App() {
     const [questions, setQuestions] = useState([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [score, setScore] = useState(0);
 
-    const buyMultipleChoice = () => {
-        // Logic to buy multiple choices
-    };
-
+    // Function to handle correct answers
     const isCorrect = (selectedAnswer) => {
-        return questions[currentQuestionIndex].correctAnswer === selectedAnswer;
+        return selectedAnswer === questions[currentQuestionIndex].correct_answer;
     };
 
-    const handleAnswerSelect = (selectedAnswer) => {
-        if (isCorrect(selectedAnswer)) {
-            setScore(score + 1);
-        }
-        setCurrentQuestionIndex(currentQuestionIndex + 1);
+    // Function to buy multiple choice answers
+    const buyMultipleChoice = () => {
+        // Implement the buy functionality here
     };
+
+    // Additional functions for handling quizzes would go here.
 
     return (
-        <div className="App">  
-            {questions.length > 0 ? (
-                <div>
-                    <h1>{questions[currentQuestionIndex].question}</h1>
-                    <div className="answers">
-                        {questions[currentQuestionIndex].answers.map((answer, index) => (
-                            <button key={index} onClick={() => handleAnswerSelect(answer)}>{answer}</button>
-                        ))}
-                    </div>
-                </div>
-            ) : (
-                <p>Loading questions...</p>
-            )}
-           {/* Add the buy multiple choice feature here */}
-           <button onClick={buyMultipleChoice}>Buy Multiple Choices</button>
+        <div>
+            <h1>Trivia Quiz</h1>
+            {/* Quiz Rendering Logic */}
         </div>
     );
 }
