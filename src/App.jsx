@@ -1,119 +1,108 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import './App.css'; // Assuming your CSS file is in the same directory
+import React, { useState, useEffect } from 'react';
+import { config } from './config';
+import { Wallet } from './wallet';
+import { extras } from './extras';
 
 const App = () => {
-    const [level, setLevel] = useState(1);
-    const [questions, setQuestions] = useState([]);
-    const [score, setScore] = useState(0);
-    const [timer, setTimer] = useState(30);
-    const [wallet, setWallet] = useState(0);
-    const [hugsBalance, setHugsBalance] = useState(0);
-    const [history, setHistory] = useState([]);
-    const questionRef = useRef(null);
-    
+    const [state, setState] = useState({
+        currentLevel: 0,
+        score: 0,
+        questions: [],
+        currentQuestionIndex: 0,
+        timer: 30,
+        feedback: '',
+        gameState: 'start', // start, question, levelcomplete, history
+        history: []
+    });
+
     useEffect(() => {
         loadQuestions();
-        // Load HUGS balance from wallet
-        loadHugsBalance();
     }, []);
-    
+
     useEffect(() => {
-        if (timer > 0) {
-            const timerId = setInterval(() => setTimer((t) => t - 1), 1000);
-            return () => clearInterval(timerId);
+        const timerId = setInterval(() => {
+            if (state.timer > 0) {
+                setState(prev => ({ ...prev, timer: prev.timer - 1 }));
+            } else {
+                clearInterval(timerId);
+                validateAnswer();
+            }
+        }, 1000);
+        return () => clearInterval(timerId);
+    }, [state.timer]);
+
+    const loadQuestions = () => {
+        // Load your questions from config/extras here
+        const questions = config.questions;
+        setState(prev => ({ ...prev, questions }));
+    };
+
+    const startGame = () => {
+        setState({...state, gameState: 'question', currentQuestionIndex: 0, timer: 30, feedback: '' });
+    };
+
+    const validateAnswer = (answer) => {
+        const currentQuestion = state.questions[state.currentQuestionIndex];
+        const isCorrect = currentQuestion.correctAnswer === answer;
+        if (isCorrect) {
+            setState(prevState => ({
+                ...prevState,
+                score: prevState.score + 1,
+                feedback: 'Correct!'
+            }));
+            buyMultipleChoice();
+            nextQuestion();
         } else {
-            handleQuestionComplete();
+            setState(prevState => ({
+                ...prevState,
+                feedback: 'Incorrect!'
+            }));
         }
-    }, [timer]);
-
-    const loadQuestions = async () => {
-        // Fetch questions logic
-        const fetchedQuestions = await fetchQuestions();
-        setQuestions(fetchedQuestions);
     };
-    
-    const loadHugsBalance = async () => {
-        // Logic to load HUGS balance from wallet
-        const balance = await fetchHugsBalance();
-        setHugsBalance(balance);
-    };  
-    
-    const buyMultipleChoice = (cost) => {
-        if (wallet >= cost) {
-            setWallet(wallet - cost);
+
+    const buyMultipleChoice = () => {
+        // Implement wallet integration here
+        Wallet.buy({ amount: 1 });
+    };
+
+    const nextQuestion = () => {
+        if (state.currentQuestionIndex < state.questions.length - 1) {
+            setState(prev => ({
+                ...prev,
+                currentQuestionIndex: prev.currentQuestionIndex + 1,
+                timer: 30,
+                feedback: ''
+            }));
         } else {
-            alert("Not enough funds!");
+            // Logic for level complete
+            setState({ ...state, gameState: 'levelcomplete' });
         }
     };
 
-    const isCorrect = (selectedAnswer, correctAnswer) => {
-        return selectedAnswer === correctAnswer;
-    };
-    
-    const handleQuestionComplete = () => {
-        const currentQuestion = questions[level - 1];
-        if (isCorrect(selectedAnswer, currentQuestion.correctAnswer)) {
-            setScore(score + 1);
-            // Progress to next level
-            if (level < questions.length) setLevel(level + 1);
-            else levelComplete();
-        } else {
-            // Handle incorrect answer
-            alert('Wrong answer!');
-        }
-        setTimer(30); // Reset timer
-    };
-
-    const levelComplete = () => {
-        // Logic for completing the level and distributing rewards
-        distributeRewards(score);
-        // Reset for the next level
-        setLevel(1);
-        setScore(0);
-    };
-
-    const distributeRewards = (score) => {
-        // Logic to reward XLRL based on score
-    };
-
-    const renderHistory = () => {
-        return history.map((entry, index) => (
-            <tr key={index}>
-                <td>{entry.question}</td>
-                <td>{entry.selectedAnswer}</td>
-                <td>{entry.isCorrect ? '✔️' : '❌'}</td>
-            </tr>
-        ));
-    };
-    
-    const renderUI = () => {
-        return (
-            <div className="hud">
-                <h1>HUGS Trivia Game</h1>
-                <h2>Level: {level}</h2>
-                <h2>Score: {score}</h2>
-                <h2>Wallet: ${wallet}</h2>
-                <h2>HUGS Balance: {hugsBalance}</h2>
-                <div className="question">{questions[level - 1]?.question}</div>
-                {/* Render answer options here */}
-                <button className="btn">Submit Answer</button>
-                <div className="history-table">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Question</th>
-                                <th>Your Answer</th>
-                                <th>Result</th>
-                            </tr>
-                        </thead>
-                        <tbody>{renderHistory()}</tbody>
-                    </table>
+    return (
+        <div className="app-wrap">
+            <div className="overlay">
+                <div className="gold-panel centered">
+                    {state.gameState === 'start' && <button onClick={startGame}>Start Game</button>}
+                    {state.gameState === 'question' && (
+                        <div>
+                            <h1>{state.questions[state.currentQuestionIndex].question}</h1>
+                            <div className="controls">
+                                {state.questions[state.currentQuestionIndex].options.map(option => (
+                                    <button key={option} onClick={() => validateAnswer(option)}>{option}</button>
+                                ))}
+                            </div>
+                            <p>{state.feedback}</p>
+                            <p>Time left: {state.timer}</p>
+                        </div>
+                    )}
+                    {state.gameState === 'levelcomplete' && <div>Your Score: {state.score}</div>}
+                    {state.gameState === 'history' && <div>Your History: {JSON.stringify(state.history)}</div>}
                 </div>
+                {/* Add additional UI elements and styling as needed */}
             </div>
-        );
-    };
-
-    return <div>{renderUI()}</div>;
+        </div>
+    );
 };
 
 export default App;
